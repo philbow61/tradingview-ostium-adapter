@@ -44,6 +44,12 @@ TradingView can reach it without cloudflared) and an encrypted **Secrets** store
 
    > Network is pre-pinned to testnet via `.replit`. Leave it — going to mainnet needs a deliberate
    > `ALLOW_MAINNET=true` and real funds.
+   >
+   > **Faster:** click **"Edit as JSON"** in the Secrets tab and paste all of them at once:
+   > ```json
+   > { "DELEGATE_PRIVATE_KEY": "0x…", "TRADER_ADDRESS": "0x…", "RPC_URL": "https://…", "STRAT_BTC_SECRET": "any-random-string" }
+   > ```
+   > (Replit can't pre-fill secret values from the repo — for security, every fork sets its own.)
 3. **Register your delegate via the Ostium UI** — in Ostium's Builder/delegate flow, point your
    wallet's delegate at the Safe it shows. This keeps your **funds-wallet key off Replit entirely**
    (the adapter only ever holds the delegate key).
@@ -51,9 +57,10 @@ TradingView can reach it without cloudflared) and an encrypted **Secrets** store
    - **Dashboard** → `<your-repl-url>/`
    - **Webhook** → `<your-repl-url>/tv/demo`
 
-   By default it boots in **dry-run** (logs only — no `config.yaml` yet). To trade for real on
-   testnet, copy `config.example.yaml` → `config.yaml` in the file tree and set
-   `btc-demo-001` → `mode: live`.
+   It trades **live on Ostium testnet by default**. Until your Secrets are set it safely runs
+   dry-run (no signing key → no trades); once `DELEGATE_PRIVATE_KEY` + `TRADER_ADDRESS` are present
+   and your delegate is registered (Ostium UI), signals execute for real. For logs-only, copy
+   `config.example.yaml` → `config.yaml` and set `btc-demo-001` → `mode: dry_run`.
 5. In TradingView, create the alert with **Webhook URL = `<your-repl-url>/tv/demo`** — same wiring as
    [§8 below](#8--wire-tradingview), just no tunnel.
 
@@ -114,7 +121,7 @@ npm run delegate-info          # → ✅ ADAPTER AUTHORIZED
 cp config.example.yaml config.yaml
 ```
 Each strategy maps a `strategy_id` (sent in the webhook) to a wallet/sizing/pair policy. The demo
-ships `btc-demo-001` (BTC, 24/7). Set `mode: live` to trade for real, or leave `dry_run` to just log.
+ships `btc-demo-001` (BTC, 24/7), **live by default** (testnet). Set `mode: dry_run` for logs-only.
 Sizing modes: `fixed_notional` (default), `percent_of_equity`, `risk_percent`.
 
 ## 5 · Verify reads & cache pairs
@@ -123,7 +130,7 @@ npm run probe        # confirms SDK reads, prints balance/positions, caches data
 ```
 
 ## 6 · Dry-run the whole pipeline (no real trades)
-With `btc-demo-001` left at `mode: dry_run`:
+The shipped config is **live**; for a no-trade dry run set `btc-demo-001` → `mode: dry_run` in `config.yaml`, then:
 ```bash
 npm start            # terminal 1 — receiver + dashboard on :8080
 npm run fake-tv      # terminal 2 — posts long → flip short → flat; watch it RESOLVE the plan

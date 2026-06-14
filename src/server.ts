@@ -72,14 +72,23 @@ export async function buildServer(): Promise<FastifyInstance> {
   if (anyLive) {
     const dk = process.env.DELEGATE_PRIVATE_KEY;
     const trader = process.env.TRADER_ADDRESS;
-    if (!dk || !trader) throw new Error('live strategy configured but DELEGATE_PRIVATE_KEY / TRADER_ADDRESS missing');
-    executorConfig = {
-      delegatePrivateKey: dk as `0x${string}`,
-      traderAddress: trader as `0x${string}`,
-      ...(process.env.PIMLICO_URL ? { pimlicoUrl: process.env.PIMLICO_URL } : {}),
-      ...(process.env.SPONSORSHIP_POLICY_ID ? { sponsorshipPolicyId: process.env.SPONSORSHIP_POLICY_ID } : {}),
-      ...(process.env.RPC_URL ? { rpcUrl: process.env.RPC_URL } : {}),
-    };
+    if (dk && trader) {
+      executorConfig = {
+        delegatePrivateKey: dk as `0x${string}`,
+        traderAddress: trader as `0x${string}`,
+        ...(process.env.PIMLICO_URL ? { pimlicoUrl: process.env.PIMLICO_URL } : {}),
+        ...(process.env.SPONSORSHIP_POLICY_ID ? { sponsorshipPolicyId: process.env.SPONSORSHIP_POLICY_ID } : {}),
+        ...(process.env.RPC_URL ? { rpcUrl: process.env.RPC_URL } : {}),
+      };
+    } else {
+      // Live configured but signing secrets missing (e.g. a fresh Replit fork before Secrets are
+      // added): degrade live strategies to dry-run so the server + dashboard still boot. Add
+      // DELEGATE_PRIVATE_KEY + TRADER_ADDRESS and restart to trade for real.
+      console.warn(
+        '[receiver] live strategy configured but DELEGATE_PRIVATE_KEY / TRADER_ADDRESS missing — running DRY-RUN until they are set.',
+      );
+      for (const s of Object.values(config.strategies)) if (s.mode === 'live') s.mode = 'dry_run';
+    }
   }
 
   const notifier = makeNotifier(process.env.DISCORD_WEBHOOK_URL);

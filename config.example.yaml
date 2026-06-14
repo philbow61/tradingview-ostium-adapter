@@ -52,11 +52,12 @@ strategies:
       max_open_positions: 1
       require_sl_for_risk_mode: true
 
-  # T-044 demo strategy. BTC trades 24/7, so the demo works any day/time.
-  # ⚠️ Set `mode: live` (and register our delegate) to trade for real; `dry_run` just logs.
+  # Demo strategy. BTC trades 24/7, so it works any day/time.
+  # ⚠️ LIVE by default — trades real positions on Ostium testnet once signing Secrets are set and
+  #    your delegate is registered (Ostium UI). Set `mode: dry_run` for logs-only (no trades).
   btc-demo-001:
     enabled: true
-    mode: dry_run
+    mode: live
     secret_env: STRAT_BTC_SECRET
     default_leverage: 10
     max_leverage: 50
