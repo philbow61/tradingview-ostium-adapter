@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TradingView × Ostium — Strategy Adapter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* --- Ostium design tokens (dark theme) --- */
+    :root {
+      --bkg: #141414;
+      --elevated: rgba(245, 245, 245, 0.05);
+      --border: rgba(245, 245, 245, 0.05);
+      --text: #f5f5f5;
+      --text-dim: rgba(245, 245, 245, 0.70);
+      --text-vdim: rgba(245, 245, 245, 0.50);
+      --green: #14db7f;
+      --green-bg: rgba(20, 219, 127, 0.12);
+      --green-bd: #145034;
+      --red: #ff2741;
+      --red-bg: rgba(255, 39, 65, 0.12);
+      --red-bd: #5b1a22;
+      --orange: #ff5a19;
+      --yellow: #ffe548;
+      --yellow-bg: rgba(255, 229, 72, 0.10);
+      --tag-bg: rgba(245, 245, 245, 0.10);
+      --r-sm: 6px;
+      --r-lg: 16px;
+      --r-full: 100px;
+      font-family: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bkg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.4;
+      -webkit-font-smoothing: antialiased;
+    }
+    .num { font-variant-numeric: tabular-nums; }
+    a { color: inherit; }
+    a:focus-visible, .ev-link:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; border-radius: 4px; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    .loading { animation: pulse 1.4s ease-in-out infinite; }
+
+    /* --- top bar --- */
+    header {
+      position: sticky; top: 0; z-index: 10;
+      height: 56px; display: flex; align-items: center; gap: 16px;
+      padding: 0 24px;
+      background: var(--bkg);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo { display: flex; align-items: center; gap: 8px; }
+    .logo-mark {
+      width: 24px; height: 24px; border-radius: var(--r-sm);
+      background: var(--orange); color: #141414;
+      display: grid; place-items: center; font-weight: 700; font-size: 16px;
+    }
+    .logo-word { font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
+    .crumb { color: var(--text-dim); font-size: 14px; font-weight: 500; }
+    .crumb .x { color: var(--text-vdim); margin: 0 6px; }
+    .spacer { flex: 1; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: var(--r-full);
+      background: var(--tag-bg); font-size: 12px; font-weight: 600;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-vdim); flex: none; }
+    .dot.ok { background: var(--green); }
+    .dot.err { background: var(--red); }
+    .dot.warn { background: var(--yellow); }
+    .clock { color: var(--text-vdim); font-size: 12px; }
+
+    /* --- layout --- */
+    main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+    .banner {
+      display: none; margin-bottom: 16px; padding: 12px 16px;
+      border-radius: var(--r-lg); font-size: 13px; font-weight: 600; border: 1px solid transparent;
+    }
+    .banner.show { display: block; }
+    .banner.err { background: var(--red-bg); color: var(--red); border-color: var(--red-bd); }
+    .banner.warn { background: var(--yellow-bg); color: var(--yellow); border-color: rgba(255, 229, 72, 0.3); }
+    .banner code { background: rgba(0, 0, 0, 0.25); }
+
+    .stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px; margin-bottom: 16px;
+    }
+    .tile {
+      background: var(--elevated); border: 1px solid var(--border);
+      border-radius: var(--r-lg); padding: 12px 16px;
+    }
+    .tile .label {
+      font-size: 12px; font-weight: 600; color: var(--text-vdim);
+      text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px;
+    }
+    .tile .value { font-size: 18px; font-weight: 600; }
+    .tile .value.sm { font-size: 15px; }
+    .pos { color: var(--green); }
+    .neg { color: var(--red); }
+    .dim { color: var(--text-dim); }
+
+    .grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; align-items: start; }
+    @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+
+    .panel {
+      background: var(--elevated); border: 1px solid var(--border);
+      border-radius: var(--r-lg); padding: 16px;
+    }
+    .panel-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .panel-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+    .panel-head .meta { font-size: 12px; color: var(--text-vdim); }
+
+    /* --- position card --- */
+    .poscard { padding: 16px; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bkg); }
+    .poscard + .poscard { margin-top: 12px; }
+    .poscard-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+    .poscard-pair { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .poscard-pair .name { font-size: 18px; font-weight: 600; }
+    .tag {
+      display: inline-flex; align-items: center; padding: 3px 10px;
+      border-radius: var(--r-full); font-size: 12px; font-weight: 600;
+      background: var(--tag-bg); color: var(--text-dim);
+    }
+    .tag.long { background: var(--green-bg); color: var(--green); }
+    .tag.short { background: var(--red-bg); color: var(--red); }
+    .poscard-pnl { text-align: right; }
+    .poscard-pnl .big { font-size: 24px; font-weight: 600; }
+    .poscard-pnl .roe { font-size: 12px; }
+    .kv { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px 16px; }
+    @media (max-width: 560px) { .kv { grid-template-columns: repeat(2, 1fr); } }
+    .kv .k { font-size: 11px; font-weight: 600; color: var(--text-vdim); text-transform: uppercase; letter-spacing: 0.03em; }
+    .kv .v { font-size: 15px; font-weight: 500; margin-top: 2px; }
+    .poscard-foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-vdim); }
+
+    .empty { text-align: center; padding: 40px 16px; color: var(--text-dim); }
+    .empty .big { font-size: 16px; margin-bottom: 4px; }
+
+    /* --- timeline --- */
+    .timeline { display: flex; flex-direction: column; max-height: 560px; overflow-y: auto; }
+    .ev { display: grid; grid-template-columns: 16px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .ev:last-child { border-bottom: 0; }
+    .ev-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; background: var(--text-vdim); }
+    .ev-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .ev-kind { font-size: 13px; font-weight: 600; }
+    .ev-time { font-size: 11px; color: var(--text-vdim); white-space: nowrap; }
+    .ev-sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; word-break: break-word; }
+    .ev-link { font-size: 12px; color: var(--orange); text-decoration: none; }
+    .ev-link:hover { text-decoration: underline; }
+    .k-green .ev-dot { background: var(--green); }
+    .k-red .ev-dot { background: var(--red); }
+    .k-orange .ev-dot { background: var(--orange); }
+    .k-yellow .ev-dot { background: var(--yellow); }
+    .k-green .ev-kind { color: var(--green); }
+    .k-red .ev-kind { color: var(--red); }
+    .k-orange .ev-kind { color: var(--orange); }
+
+    footer { max-width: 1200px; margin: 0 auto; padding: 8px 24px 32px; color: var(--text-vdim); font-size: 12px; }
+    code { background: var(--tag-bg); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">
+      <div class="logo-mark">O</div>
+      <div class="logo-word">ostium</div>
+    </div>
+    <div class="crumb">TradingView <span class="x">×</span> Ostium <span class="x">·</span> Strategy Adapter</div>
+    <div class="spacer"></div>
+    <span class="pill" id="net-pill"><span class="dot warn"></span><span id="net-label">connecting…</span></span>
+    <span class="pill" id="conn-pill"><span class="dot" id="conn-dot"></span><span id="conn-label">live</span></span>
+    <span class="clock num" id="clock">--:--:--</span>
+  </header>
+
+  <main>
+    <div class="banner" id="banner"></div>
+
+    <section class="stats" id="stats"></section>
+
+    <div class="grid">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Position</h2>
+          <span class="meta" id="pos-meta"></span>
+        </div>
+        <div id="positions"><div class="empty loading"><div class="big">Loading…</div></div></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Order lifecycle</h2>
+          <span class="meta" id="ev-meta"></span>
+        </div>
+        <div class="timeline" id="timeline"><div class="empty loading dim">Loading…</div></div>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    Read-only operator view · polls <code>/api/positions</code> + <code>/events</code> every 3s.
+    Numbers come straight from on-chain reads via the Ostium Builder SDK. This page never trades.
+  </footer>
+
+  <script>
+    'use strict';
+    var EXPLORER = 'https://arbitrum-sepolia.blockscout.com/tx/';
+    var NET_NAMES = { testnet: 'Arbitrum Sepolia', mainnet: 'Arbitrum One' };
+    var lastPositions = null; // last GOOD snapshot, kept across transient errors
+    var lastStatus = null;
+
+    // --- formatting helpers ---
+    function n(x) { var v = Number(x); return isFinite(v) ? v : null; }
+    function money(x) {
+      var v = n(x); if (v === null) return '—';
+      var s = Math.abs(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return (v < 0 ? '-$' : '$') + s;
+    }
+    function usd(x) { var v = n(x); return v === null ? '—' : '$' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    function price(x) {
+      var v = n(x); if (v === null) return '—';
+      var d = v >= 1000 ? 2 : v >= 1 ? 4 : 6;
+      return v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+    }
+    function lev(x) { var v = n(x); return v === null ? '—' : v.toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+    function size(x) { var v = n(x); return v === null ? '—' : v.toLocaleString(undefined, { maximumFractionDigits: 6 }); }
+    function rel(ms) {
+      if (!ms) return '';
+      var s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+      if (s < 60) return s + 's ago';
+      var m = Math.floor(s / 60); if (m < 60) return m + 'm ago';
+      var h = Math.floor(m / 60); if (h < 24) return h + 'h ' + (m % 60) + 'm ago';
+      return Math.floor(h / 24) + 'd ago';
+    }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function setConn(state, label) {
+      document.getElementById('conn-dot').className = 'dot ' + state;
+      document.getElementById('conn-label').textContent = label;
+    }
+    function setBanner(html, cls) { var el = document.getElementById('banner'); el.className = 'banner show ' + cls; el.innerHTML = html; }
+    function clearBanner() { document.getElementById('banner').className = 'banner'; }
+
+    // --- status / stat tiles ---
+    function renderStats(status, pos) {
+      var deleg = (status && status.delegate) || { configured: false, authorized: null };
+      var delClass = 'dim', delText = 'n/a';
+      if (deleg.configured && deleg.authorized === true) { delClass = 'pos'; delText = '✓ Authorized'; }
+      else if (deleg.configured && deleg.authorized === false) { delClass = 'neg'; delText = '✕ Not authorized'; }
+      else if (deleg.configured) { delClass = 'dim'; delText = 'checking…'; }
+
+      var killOn = status && status.killSwitch;
+
+      // Promote the two hard demo-blockers to a banner; otherwise clear it.
+      if (deleg.configured && deleg.authorized === false) {
+        setBanner('⚠ Delegate not authorized — the trader’s delegate slot points elsewhere (e.g. the Ostium UI relayer). ' +
+          'Live trades will be rejected. Run <code>npm run register-delegate</code>, then confirm <code>npm run delegate-info</code>.', 'err');
+      } else if (killOn) {
+        setBanner('⏸ Kill-switch is ON — the worker halts before any trade. Set <code>global.kill_switch: false</code> and restart to resume.', 'warn');
+      } else {
+        clearBanner();
+      }
+
+      var pnl = pos && pos.marginSummary ? n(pos.marginSummary.totalRawPnlUsd) : null;
+      if (pnl === null && pos && pos.positions) { pnl = pos.positions.reduce(function (a, p) { return a + (n(p.unrealizedPnl) || 0); }, 0); }
+      var pnlClass = pnl === null ? '' : pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'dim';
+
+      var tiles = [
+        { label: 'Network', value: (status && NET_NAMES[status.network]) || (status && status.network) || '—', cls: 'sm dim' },
+        { label: 'Delegate', value: delText, cls: 'sm ' + delClass },
+        { label: 'Kill-switch', value: killOn ? 'HALTED' : 'Off', cls: 'sm ' + (killOn ? 'neg' : 'dim') },
+        { label: 'USDC balance', value: pos && pos.balance ? usd(pos.balance.usdc) : '—', cls: '' },
+        { label: 'Account value', value: pos && pos.marginSummary ? usd(pos.marginSummary.accountValue) : '—', cls: '' },
+        { label: 'Open PnL', value: pnl === null ? '—' : money(pnl), cls: pnlClass }
+      ];
+      document.getElementById('stats').innerHTML = tiles.map(function (t) {
+        return '<div class="tile"><div class="label">' + t.label + '</div>' +
+          '<div class="value num ' + t.cls + '">' + esc(t.value) + '</div></div>';
+      }).join('');
+    }
+
+    // --- position card ---
+    function kv(k, v) { return '<div><div class="k">' + k + '</div><div class="v num">' + esc(v) + '</div></div>'; }
+    function renderPositions(pos, dataOk) {
+      var host = document.getElementById('positions');
+      var meta = document.getElementById('pos-meta');
+      if (pos == null) { // never received a good snapshot yet
+        meta.textContent = '';
+        host.innerHTML = dataOk
+          ? '<div class="empty loading"><div class="big">Loading…</div></div>'
+          : '<div class="empty"><div class="big">Position data unavailable</div><div class="dim">On-chain read failed — retrying…</div></div>';
+        return;
+      }
+      var list = pos.positions || [];
+      meta.textContent = pos.trader ? (pos.trader.slice(0, 6) + '…' + pos.trader.slice(-4)) : '';
+      if (!list.length) {
+        host.innerHTML = '<div class="empty"><div class="big">No open position</div>' +
+          '<div class="dim">Flat — waiting for the next strategy signal.</div></div>';
+        return;
+      }
+      host.innerHTML = list.map(function (p) {
+        var pnl = n(p.unrealizedPnl);
+        var pnlClass = pnl === null ? 'dim' : pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'dim';
+        var coll = n(p.collateralUsed), roe = (pnl !== null && coll) ? (pnl / coll) * 100 : null;
+        var roeStr = roe === null ? '' : (roe > 0 ? '+' : '') + roe.toFixed(2) + '%';
+        return '<div class="poscard">' +
+          '<div class="poscard-top">' +
+            '<div class="poscard-pair">' +
+              '<span class="name">' + esc(p.pair) + '</span>' +
+              '<span class="tag ' + p.side + '">' + (p.side === 'long' ? 'LONG' : 'SHORT') + '</span>' +
+              '<span class="tag num">' + esc(lev(p.leverage)) + '×</span>' +
+            '</div>' +
+            '<div class="poscard-pnl">' +
+              '<div class="big num ' + pnlClass + '">' + money(p.unrealizedPnl) + '</div>' +
+              '<div class="roe num ' + pnlClass + '">' + roeStr + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="kv">' +
+            kv('Entry', price(p.entryPx)) +
+            kv('Mark', p.markPx ? price(p.markPx) : '—') +
+            kv('Size', size(p.size) + ' ' + esc(p.pairFrom)) +
+            kv('Notional', usd(p.notional)) +
+            kv('Collateral', usd(p.collateralUsed)) +
+            kv('Liq. price', price(p.liquidationPx)) +
+            kv('Take-profit', p.takeProfit ? price(p.takeProfit) : '—') +
+            kv('Stop-loss', p.stopLoss ? price(p.stopLoss) : '—') +
+          '</div>' +
+          '<div class="poscard-foot">Opened ' + esc(rel(p.openedAt)) + ' · slot idx ' + esc(p.idx) + '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    // --- event timeline ---
+    var EV = {
+      received:         { cls: '',         label: 'Signal received' },
+      deduped:          { cls: '',         label: 'Duplicate, ignored' },
+      dry_run_plan:     { cls: 'k-yellow', label: 'Dry-run plan' },
+      flip_in_progress: { cls: 'k-orange', label: 'Flipping position' },
+      opened:           { cls: 'k-green',  label: 'Position opened' },
+      closed:           { cls: 'k-orange', label: 'Position closed' },
+      noop:             { cls: '',         label: 'No-op' },
+      stale:            { cls: 'k-yellow', label: 'Stale, ignored' },
+      reject:           { cls: 'k-red',    label: 'Rejected' }
+    };
+    // Map machine reject tokens (reason is "<key>:<detail>") to presenter-readable text.
+    var REJECT_LABELS = {
+      kill_switch_or_disabled: 'Kill-switch / strategy disabled',
+      unmapped_or_disallowed: 'Unknown or disallowed pair',
+      pair_not_live: 'Pair not live',
+      market_closed: 'Market closed',
+      sizing: 'Sizing rejected',
+      close_not_settled: 'Close did not settle',
+      open_cancelled: 'Open cancelled by venue',
+      open_not_settled_reclaimed: 'Open timed out — collateral reclaimed',
+      exec: 'Execution error'
+    };
+    function evSummary(kind, d) {
+      d = d || {};
+      switch (kind) {
+        case 'received': return (d.sentiment ? String(d.sentiment).toUpperCase() : '?') + ' · ' + (d.ticker || '') + (d.mode ? ' · ' + d.mode : '');
+        case 'deduped': return (d.sentiment ? String(d.sentiment).toUpperCase() + ' · ' : '') + (d.ticker || '') + (d.status ? ' · ' + d.status : '');
+        case 'dry_run_plan': {
+          var ops = []; if (d.ops && d.ops.close) ops.push('close'); if (d.ops && d.ops.open) ops.push('open');
+          var parts = [(d.target ? String(d.target).toUpperCase() : '') + ' ' + (d.pair || '')];
+          if (ops.length) parts.push(ops.join('+'));
+          if (d.notional) parts.push(money(d.notional) + (d.leverage ? ' @ ' + d.leverage + '×' : ''));
+          if (d.takeProfit) parts.push('TP ' + price(d.takeProfit));
+          if (d.stopLoss) parts.push('SL ' + price(d.stopLoss));
+          return parts.join(' · ');
+        }
+        case 'flip_in_progress': return (d.from || '?') + ' → ' + (d.to || '?') + ' · ' + (d.pair || '');
+        case 'opened': {
+          var s = (d.pair || ''); if (d.notional) s += ' · ' + money(d.notional); if (d.leverage) s += ' @ ' + d.leverage + '×';
+          return s;
+        }
+        case 'closed': return d.pair || '';
+        case 'noop': return 'already ' + (d.current || d.target || '');
+        case 'stale': {
+          var l = Number(d.lag), m = Number(d.maxLag);
+          return (isFinite(l) && isFinite(m)) ? 'lag ' + Math.round(l) + 's > ' + Math.round(m) + 's' : 'too old';
+        }
+        case 'reject': {
+          var raw = String(d.reason || '');
+          var key = raw.split(':')[0];
+          var rest = raw.slice(key.length + 1);
+          var label = REJECT_LABELS[key] || raw;
+          return rest ? label + ' — ' + rest : label;
+        }
+        default: return '';
+      }
+    }
+    function renderEvents(events) {
+      var host = document.getElementById('timeline');
+      document.getElementById('ev-meta').textContent = events.length ? (events.length + ' events') : '';
+      if (!events.length) { host.innerHTML = '<div class="empty dim">No events yet — fire a signal.</div>'; return; }
+      host.innerHTML = events.map(function (e) {
+        var def = EV[e.kind] || { cls: '', label: e.kind };
+        var d = e.data || {};
+        var tx = d.txHash ? '<a class="ev-link" href="' + EXPLORER + esc(d.txHash) + '" target="_blank" rel="noopener">' + esc(String(d.txHash).slice(0, 10)) + '… ↗</a>' : '';
+        return '<div class="ev ' + def.cls + '">' +
+          '<div class="ev-dot"></div>' +
+          '<div>' +
+            '<div class="ev-row"><span class="ev-kind">' + esc(def.label) + '</span>' +
+              '<span class="ev-time">' + esc(rel(e.ts * 1000)) + '</span></div>' +
+            '<div class="ev-sub">' + esc(evSummary(e.kind, d)) + (e.strategyId ? '  ·  ' + esc(e.strategyId) : '') + '</div>' +
+            (tx ? '<div>' + tx + '</div>' : '') +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    // --- polling ---
+    async function getJSON(url) {
+      var ctrl = new AbortController();
+      var t = setTimeout(function () { ctrl.abort(); }, 8000);
+      try {
+        var r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return await r.json();
+      } finally { clearTimeout(t); }
+    }
+
+    async function pollStatus() {
+      try {
+        var s = await getJSON('/api/status');
+        lastStatus = s;
+        if (s.network) { EXPLORER = s.network === 'mainnet' ? 'https://arbitrum.blockscout.com/tx/' : 'https://arbitrum-sepolia.blockscout.com/tx/'; }
+        document.getElementById('net-label').textContent = NET_NAMES[s.network] || s.network || 'unknown';
+        document.querySelector('#net-pill .dot').className = 'dot ' + (s.network === 'mainnet' ? 'warn' : 'ok');
+      } catch (e) { /* keep previous status */ }
+    }
+    async function pollData() {
+      var ok = true;
+      try {
+        var p = await getJSON('/api/positions');
+        if (p && p.error) ok = false;       // 200-with-error body: treat as transient, keep last good snapshot
+        else lastPositions = p;
+      } catch (e) { ok = false; }
+      var events = null;
+      try { events = await getJSON('/events?limit=60'); } catch (e) { ok = false; }
+      renderStats(lastStatus, lastPositions);
+      renderPositions(lastPositions, ok);
+      if (Array.isArray(events)) renderEvents(events);
+      setConn(ok ? 'ok' : 'err', ok ? 'live' : 'reconnecting…');
+    }
+
+    function tickClock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }
+
+    // Self-scheduling loop so a slow poll can never overlap the next one.
+    var tick = 0;
+    async function loop() {
+      try {
+        if (tick % 5 === 0) await pollStatus();
+        await pollData();
+      } catch (e) { setConn('err', 'reconnecting…'); }
+      tick++;
+      setTimeout(loop, 3000);
+    }
+    setInterval(tickClock, 1000); tickClock();
+    loop();
+  </script>
+</body>
+</html>

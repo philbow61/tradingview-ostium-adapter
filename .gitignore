@@ -1,0 +1,34 @@
+# --- Secrets: never commit these ---
+.env
+.env.*
+!.env.example
+*.key
+secrets/
+config.yaml
+config.*.yaml
+!config.example.yaml
+
+# --- Node / TypeScript ---
+node_modules/
+dist/
+*.tsbuildinfo
+.vitest/
+
+# --- Runtime / data ---
+*.db
+*.sqlite
+*.sqlite3
+data/
+logs/
+*.log
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+.vscode/
+
+# --- Replit build artifacts (keep .replit + replit.nix; ignore generated state) ---
+.config/
+.upm/
+.breakpoints
+replit_zip_error_log.txt

@@ -1,0 +1,24 @@
+# Replit run config for the TradingView × Ostium adapter (testnet template).
+# Replit gives this Repl a public HTTPS URL automatically — no cloudflared needed.
+run = "npm start"
+entrypoint = "src/server.ts"
+
+[env]
+# Bind a public interface and pin testnet. Secrets (DELEGATE_PRIVATE_KEY, TRADER_ADDRESS,
+# RPC_URL, STRAT_BTC_SECRET) go in the Replit "Secrets" tab — never in this file.
+HOST = "0.0.0.0"
+OSTIUM_NETWORK = "testnet"
+
+[nix]
+channel = "stable-24_05"
+
+# Map the receiver (8080) to the Repl's public URL.
+[[ports]]
+localPort = 8080
+externalPort = 80
+
+# Always-on upgrade (so TradingView alerts are never missed): deploy a Reserved VM.
+# A dev Repl sleeps when idle. To deploy, uncomment and use Replit's Deploy button:
+# [deployment]
+# run = ["npm", "start"]
+# deploymentTarget = "vm"

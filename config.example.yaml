@@ -1,0 +1,73 @@
+# Adapter configuration. Copy to config.yaml (git-ignored) and edit.
+# Secrets live in .env (DELEGATE_PRIVATE_KEY, TRADER_ADDRESS, per-strategy secrets).
+# The delegate key + trader address are GLOBAL (one delegate per process).
+
+global:
+  network: testnet            # testnet (Arbitrum Sepolia) | mainnet (Arbitrum One)
+  kill_switch: false          # hard global stop — halts ALL execution when true
+  # TradingView's outbound webhook IPs (defense-in-depth; they can rotate).
+  tv_allowed_ips:
+    - 52.89.214.238
+    - 34.212.75.30
+    - 54.218.53.128
+    - 52.32.178.7
+  enforce_ip_allowlist: false # MVP: off (secret + freshness are the real guard)
+  max_lag_sec_hard_cap: 120   # server-side cap; payload max_lag_sec cannot exceed this
+  min_collateral_usdc: 5.0    # fallback floor; per-pair minLevPos overrides
+
+strategies:
+  gold-demo-001:
+    enabled: true
+    mode: dry_run             # dry_run (no tx) | live
+    secret_env: STRAT_GOLD_SECRET
+    default_leverage: 10
+    max_leverage: 50
+    slippage_pct: 1.0
+    sizing:
+      default_mode: fixed_notional   # fixed_notional | percent_of_equity | risk_percent
+      default_value: 100             # USD notional (fixed_notional)
+      max_position_notional: 2000
+      allow_payload_override: true
+    allowed_pairs:
+      - XAU/USD
+    risk:
+      max_open_positions: 1
+      require_sl_for_risk_mode: true
+
+  oil-demo-001:
+    enabled: true
+    mode: dry_run
+    secret_env: STRAT_OIL_SECRET
+    default_leverage: 10
+    max_leverage: 50
+    slippage_pct: 1.5
+    sizing:
+      default_mode: fixed_notional
+      default_value: 100
+      max_position_notional: 2000
+      allow_payload_override: true
+    allowed_pairs:
+      - CL/USD
+    risk:
+      max_open_positions: 1
+      require_sl_for_risk_mode: true
+
+  # T-044 demo strategy. BTC trades 24/7, so the demo works any day/time.
+  # ⚠️ Set `mode: live` (and register our delegate) to trade for real; `dry_run` just logs.
+  btc-demo-001:
+    enabled: true
+    mode: dry_run
+    secret_env: STRAT_BTC_SECRET
+    default_leverage: 10
+    max_leverage: 50
+    slippage_pct: 1.0
+    sizing:
+      default_mode: fixed_notional
+      default_value: 100
+      max_position_notional: 2000
+      allow_payload_override: true
+    allowed_pairs:
+      - BTC/USD
+    risk:
+      max_open_positions: 1
+      require_sl_for_risk_mode: true

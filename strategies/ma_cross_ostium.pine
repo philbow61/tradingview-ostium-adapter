@@ -1,0 +1,64 @@
+//@version=6
+// Example TradingView strategy wired to the Ostium adapter.
+// A simple MA crossover that flips long/short and emits the adapter's webhook JSON on each order.
+//
+// Setup:
+//   1. Add this strategy to a chart (e.g. OANDA:XAUUSD for gold, TVC:USOIL for oil).
+//   2. Fill the `Adapter secret` and `strategy_id` inputs (must match config.yaml).
+//   3. Create an alert on the strategy:
+//        Condition = this strategy, "Order fills only"
+//        Message   = {{strategy.order.alert_message}}
+//        Notifications → Webhook URL = https://<your-host>/tv/<random-path>
+//   4. Set `Dry run` = false when you want it to trade for real.
+//
+// The adapter acts on `sentiment` (desired end-state), so the long/short flip is handled safely.
+
+strategy("Ostium MA Cross", overlay = true,
+     default_qty_type = strategy.percent_of_equity, default_qty_value = 10,
+     calc_on_every_tick = false)
+
+// --- inputs ---
+fastLen  = input.int(10, "Fast MA")
+slowLen  = input.int(50, "Slow MA")
+secret   = input.string("PASTE_PER_STRATEGY_SECRET", "Adapter secret")
+stratId  = input.string("gold-demo-001", "strategy_id (matches config.yaml)")
+notional = input.float(100, "Notional (USD)")
+lev      = input.int(10, "Leverage")
+tpPct    = input.float(5, "Take-profit % (0 = off)")
+slPct    = input.float(2, "Stop-loss % (0 = off)")
+dryRun   = input.bool(true, "Dry run (no real trade)")
+
+fast = ta.sma(close, fastLen)
+slow = ta.sma(close, slowLen)
+plot(fast, "Fast", color.aqua)
+plot(slow, "Slow", color.orange)
+
+longCond  = ta.crossover(fast, slow)
+shortCond = ta.crossunder(fast, slow)
+
+// Build the webhook JSON. {{...}} placeholders expand at fire time; `sentiment` is the
+// desired end-state for this order.
+msg(simple string sentiment) =>
+    '{"secret":"' + secret + '",' +
+      '"strategy_id":"' + stratId + '",' +
+      '"schema":"ostium-adapter/v1",' +
+      '"action":"{{strategy.order.action}}",' +
+      '"sentiment":"' + sentiment + '",' +
+      '"prev_sentiment":"{{strategy.prev_market_position}}",' +
+      '"ticker":"{{ticker}}",' +
+      '"order_type":"market",' +
+      '"sizing":{"mode":"fixed_notional","value":"' + str.tostring(notional) + '"},' +
+      '"leverage":"' + str.tostring(lev) + '",' +
+      (tpPct > 0 ? '"take_profit":{"type":"percent","value":"' + str.tostring(tpPct) + '"},' : '') +
+      (slPct > 0 ? '"stop_loss":{"type":"percent","value":"' + str.tostring(slPct) + '"},' : '') +
+      '"signal_price":"{{close}}",' +
+      '"bar_time":"{{time}}",' +
+      '"fired_at":"{{timenow}}",' +
+      '"nonce":"{{strategy.order.id}}-{{time}}",' +
+      '"dry_run":' + str.tostring(dryRun) + ',' +
+      '"max_lag_sec":60}'
+
+if longCond
+    strategy.entry("Long", strategy.long, alert_message = msg("long"))
+if shortCond
+    strategy.entry("Short", strategy.short, alert_message = msg("short"))

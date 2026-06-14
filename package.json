@@ -1,0 +1,41 @@
+{
+  "name": "tv-ostium-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Execute TradingView strategy alerts as live positions on Ostium via the Builder SDK (delegated + gasless).",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "probe": "tsx scripts/probe.ts",
+    "smoke": "tsx scripts/live-smoke.ts",
+    "live-flip": "tsx scripts/live-flip.ts",
+    "fake-tv": "tsx scripts/fake-tv.ts",
+    "delegate-info": "tsx scripts/delegate-info.ts",
+    "register-delegate": "tsx scripts/register-delegate.ts",
+    "order-status": "tsx scripts/order-status.ts",
+    "cancel-pending": "tsx scripts/cancel-pending.ts",
+    "check": "tsx scripts/check.ts",
+    "positions": "tsx scripts/positions.ts"
+  },
+  "dependencies": {
+    "@ostium/builder-sdk": "^0.4.0",
+    "better-sqlite3": "^11.0.0",
+    "dotenv": "^16.4.0",
+    "fastify": "^4.28.0",
+    "viem": "^2.21.0",
+    "yaml": "^2.5.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
