@@ -1,6 +1,7 @@
 # Replit run config for the TradingView × Ostium adapter (testnet template).
 # Replit gives this Repl a public HTTPS URL automatically — no cloudflared needed.
-run = "npm start"
+# `npm install` is included so a fresh import installs deps on the first Run (idempotent after that).
+run = "npm install && npm start"
 entrypoint = "src/server.ts"
 
 [env]
