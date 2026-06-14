@@ -27,6 +27,7 @@
     "better-sqlite3": "^11.0.0",
     "dotenv": "^16.4.0",
     "fastify": "^4.28.0",
+    "tsx": "^4.19.0",
     "viem": "^2.21.0",
     "yaml": "^2.5.0",
     "zod": "^3.23.0"
@@ -34,7 +35,6 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
-    "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }

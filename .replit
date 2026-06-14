@@ -1,7 +1,8 @@
 # Replit run config for the TradingView × Ostium adapter (testnet template).
 # Replit gives this Repl a public HTTPS URL automatically — no cloudflared needed.
-# `npm install` is included so a fresh import installs deps on the first Run (idempotent after that).
-run = "npm install && npm start"
+# Install PRODUCTION deps only on Run: skips devDependencies (vitest/typescript/@types), which
+# Replit's package firewall blocks (vitest CVE). tsx is a runtime dep, so the server still starts.
+run = "npm install --omit=dev && npm start"
 entrypoint = "src/server.ts"
 
 [env]
