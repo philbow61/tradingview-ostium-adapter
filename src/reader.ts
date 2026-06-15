@@ -65,6 +65,27 @@ export interface PositionsSnapshot {
   time: number;
 }
 
+export interface CloseFill {
+  pair: string;
+  pairId: string;
+  side: 'long' | 'short';
+  action: string; // Close | StopLoss | TakeProfit | CloseDayTrade | Liquidation
+  exitPx: string;
+  pnl: string; // realized closedPnl (USD, net of fees + rollover)
+  hash: string; // execution tx (joins to a 'closed' timeline event)
+  time: number; // unix seconds
+}
+
+export interface SessionStats {
+  startedAt: number; // unix seconds
+  realizedPnl: number; // sum of closedPnl since startedAt
+  count: number;
+  wins: number;
+  losses: number;
+  recent: CloseFill[]; // newest first
+  cumulative: Array<{ t: number; pnl: number }>; // running total, oldest→newest
+}
+
 export interface ReaderOpts {
   network: Network;
   trader?: string;
@@ -129,6 +150,44 @@ export class DashboardReader {
       positions,
       time: open.time ?? Date.now(),
     };
+  }
+
+  /** Realized-PnL stats for the current session, from on-chain close fills (Fill.closedPnl). */
+  async session(sinceSeconds: number): Promise<SessionStats> {
+    const empty: SessionStats = { startedAt: sinceSeconds, realizedPnl: 0, count: 0, wins: 0, losses: 0, recent: [], cumulative: [] };
+    const trader = this.opts.trader;
+    if (!trader) return empty;
+    const c = await this.read();
+    let fills;
+    try {
+      fills = await c.getFills({ user: trader as `0x${string}`, limit: 500 });
+    } catch {
+      return empty;
+    }
+    const CLOSE = new Set(['Close', 'StopLoss', 'TakeProfit', 'CloseDayTrade', 'Liquidation']);
+    const closes = fills.filter((f) => CLOSE.has(f.action) && f.time >= sinceSeconds).sort((a, b) => a.time - b.time);
+
+    let cum = 0;
+    let wins = 0;
+    let losses = 0;
+    const cumulative = closes.map((f) => {
+      const p = Number(f.closedPnl) || 0;
+      cum += p;
+      if (p > 0) wins++;
+      else if (p < 0) losses++;
+      return { t: f.time, pnl: cum };
+    });
+    const recent: CloseFill[] = [...closes].reverse().slice(0, 50).map((f) => ({
+      pair: `${f.pairFrom}/${f.pairTo}`,
+      pairId: String(f.pairId),
+      side: f.side === 'B' ? 'long' : 'short',
+      action: f.action,
+      exitPx: f.px,
+      pnl: f.closedPnl,
+      hash: f.hash,
+      time: f.time,
+    }));
+    return { startedAt: sinceSeconds, realizedPnl: cum, count: closes.length, wins, losses, recent, cumulative };
   }
 
   /** Cached (~30s) on-chain delegate authorization check. Returns configured:false if no key. */

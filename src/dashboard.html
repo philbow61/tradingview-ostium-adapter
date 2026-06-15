@@ -103,6 +103,17 @@
     .pos { color: var(--green); }
     .neg { color: var(--red); }
     .dim { color: var(--text-dim); }
+    .tile .sub { font-size: 11px; color: var(--text-vdim); margin-top: 3px; }
+
+    /* --- session PnL sparkline --- */
+    .spark { display: none; }
+    .spark.show {
+      display: block; margin-bottom: 16px; padding: 12px 16px;
+      background: var(--elevated); border: 1px solid var(--border); border-radius: var(--r-lg);
+    }
+    .spark-label { font-size: 12px; font-weight: 600; color: var(--text-vdim); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    .spark-svg { width: 100%; height: 40px; display: block; }
+    .spark-zero { stroke: var(--text-vdim); stroke-dasharray: 2 3; opacity: 0.5; }
 
     .grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; align-items: start; }
     @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
@@ -184,6 +195,8 @@
 
     <section class="stats" id="stats"></section>
 
+    <div class="spark" id="spark"></div>
+
     <div class="grid">
       <section class="panel">
         <div class="panel-head">
@@ -214,6 +227,7 @@
     var NET_NAMES = { testnet: 'Arbitrum Sepolia', mainnet: 'Arbitrum One' };
     var lastPositions = null; // last GOOD snapshot, kept across transient errors
     var lastStatus = null;
+    var fillsByHash = {}; // close-fill tx hash -> realized pnl, for the timeline
 
     // --- formatting helpers ---
     function n(x) { var v = Number(x); return isFinite(v) ? v : null; }
@@ -270,17 +284,26 @@
       if (pnl === null && pos && pos.positions) { pnl = pos.positions.reduce(function (a, p) { return a + (n(p.unrealizedPnl) || 0); }, 0); }
       var pnlClass = pnl === null ? '' : pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'dim';
 
+      var sess = pos && pos.session;
+      var sPnl = sess ? sess.realizedPnl : null;
+      var sCls = sPnl == null ? '' : sPnl > 0 ? 'pos' : sPnl < 0 ? 'neg' : 'dim';
+      var sSub = sess && sess.count
+        ? sess.count + ' trade' + (sess.count === 1 ? '' : 's') + ' · ' + sess.wins + 'W/' + sess.losses + 'L'
+        : (sess ? 'no closes yet' : '');
+
       var tiles = [
         { label: 'Network', value: (status && NET_NAMES[status.network]) || (status && status.network) || '—', cls: 'sm dim' },
         { label: 'Delegate', value: delText, cls: 'sm ' + delClass },
         { label: 'Kill-switch', value: killOn ? 'HALTED' : 'Off', cls: 'sm ' + (killOn ? 'neg' : 'dim') },
         { label: 'USDC balance', value: pos && pos.balance ? usd(pos.balance.usdc) : '—', cls: '' },
         { label: 'Account value', value: pos && pos.marginSummary ? usd(pos.marginSummary.accountValue) : '—', cls: '' },
-        { label: 'Open PnL', value: pnl === null ? '—' : money(pnl), cls: pnlClass }
+        { label: 'Open PnL', value: pnl === null ? '—' : money(pnl), cls: pnlClass },
+        { label: 'Session PnL', value: sPnl == null ? '—' : money(sPnl), cls: sCls, sub: sSub }
       ];
       document.getElementById('stats').innerHTML = tiles.map(function (t) {
         return '<div class="tile"><div class="label">' + t.label + '</div>' +
-          '<div class="value num ' + t.cls + '">' + esc(t.value) + '</div></div>';
+          '<div class="value num ' + t.cls + '">' + esc(t.value) + '</div>' +
+          (t.sub ? '<div class="sub num">' + esc(t.sub) + '</div>' : '') + '</div>';
       }).join('');
     }
 
@@ -394,6 +417,30 @@
         default: return '';
       }
     }
+    // --- cumulative session-PnL sparkline (inline SVG, no deps) ---
+    function renderSpark(points) {
+      var host = document.getElementById('spark');
+      if (!points || points.length < 2) { host.className = 'spark'; host.innerHTML = ''; return; }
+      var W = 100, H = 30, nn = points.length;
+      var ys = points.map(function (p) { return p.pnl; });
+      var min = Math.min.apply(null, ys.concat([0]));
+      var max = Math.max.apply(null, ys.concat([0]));
+      var range = (max - min) || 1;
+      var yOf = function (v) { return (H - ((v - min) / range) * H).toFixed(1); };
+      var path = points.map(function (p, i) {
+        return (i === 0 ? 'M' : 'L') + ((i / (nn - 1)) * W).toFixed(1) + ',' + yOf(p.pnl);
+      }).join(' ');
+      var last = ys[ys.length - 1];
+      var stroke = last >= 0 ? 'var(--green)' : 'var(--red)';
+      host.className = 'spark show';
+      host.innerHTML =
+        '<div class="spark-label">Session PnL over time · <span class="num ' + (last >= 0 ? 'pos' : 'neg') + '">' + (last > 0 ? '+' : '') + money(last) + '</span></div>' +
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" class="spark-svg">' +
+          '<line class="spark-zero" x1="0" y1="' + yOf(0) + '" x2="' + W + '" y2="' + yOf(0) + '"/>' +
+          '<path d="' + path + '" fill="none" stroke="' + stroke + '" stroke-width="1.5" vector-effect="non-scaling-stroke"/>' +
+        '</svg>';
+    }
+
     function renderEvents(events) {
       var host = document.getElementById('timeline');
       document.getElementById('ev-meta').textContent = events.length ? (events.length + ' events') : '';
@@ -402,12 +449,19 @@
         var def = EV[e.kind] || { cls: '', label: e.kind };
         var d = e.data || {};
         var tx = d.txHash ? '<a class="ev-link" href="' + EXPLORER + esc(d.txHash) + '" target="_blank" rel="noopener">' + esc(String(d.txHash).slice(0, 10)) + '… ↗</a>' : '';
+        // realized PnL for a close, joined from on-chain fills by tx hash
+        var realized = (e.kind === 'closed' && d.txHash) ? fillsByHash[String(d.txHash).toLowerCase()] : undefined;
+        var pnlSpan = '';
+        if (realized != null && realized !== '') {
+          var rv = Number(realized);
+          pnlSpan = '  <span class="num ' + (rv > 0 ? 'pos' : rv < 0 ? 'neg' : 'dim') + '">' + (rv > 0 ? '+' : '') + money(realized) + '</span>';
+        }
         return '<div class="ev ' + def.cls + '">' +
           '<div class="ev-dot"></div>' +
           '<div>' +
             '<div class="ev-row"><span class="ev-kind">' + esc(def.label) + '</span>' +
               '<span class="ev-time">' + esc(rel(e.ts * 1000)) + '</span></div>' +
-            '<div class="ev-sub">' + esc(evSummary(e.kind, d)) + (e.strategyId ? '  ·  ' + esc(e.strategyId) : '') + '</div>' +
+            '<div class="ev-sub">' + esc(evSummary(e.kind, d)) + (e.strategyId ? '  ·  ' + esc(e.strategyId) : '') + pnlSpan + '</div>' +
             (tx ? '<div>' + tx + '</div>' : '') +
           '</div>' +
         '</div>';
@@ -445,6 +499,10 @@
       try { events = await getJSON('/events?limit=60'); } catch (e) { ok = false; }
       renderStats(lastStatus, lastPositions);
       renderPositions(lastPositions, ok);
+      var sess = lastPositions && lastPositions.session;
+      fillsByHash = {};
+      if (sess && sess.recent) sess.recent.forEach(function (f) { if (f.hash) fillsByHash[String(f.hash).toLowerCase()] = f.pnl; });
+      renderSpark(sess && sess.cumulative);
       if (Array.isArray(events)) renderEvents(events);
       setConn(ok ? 'ok' : 'err', ok ? 'live' : 'reconnecting…');
     }

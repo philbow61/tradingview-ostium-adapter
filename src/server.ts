@@ -21,6 +21,7 @@ import { DashboardReader } from './reader';
 import { dashboardHtml } from './dashboard';
 
 const DATA_DIR = process.env.DATA_DIR ?? 'data';
+const SESSION_STARTED_AT = Math.floor(Date.now() / 1000); // unix seconds — session PnL is measured from here
 
 function constantTimeEq(a: string, b: string): boolean {
   const ba = Buffer.from(a);
@@ -135,9 +136,10 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   app.get('/api/positions', async (_req, reply) => {
     try {
-      return await reader.positions();
+      const [snap, session] = await Promise.all([reader.positions(), reader.session(SESSION_STARTED_AT)]);
+      return { ...snap, session };
     } catch (e) {
-      return reply.code(200).send({ error: e instanceof Error ? e.message : String(e), positions: [] });
+      return reply.code(200).send({ error: e instanceof Error ? e.message : String(e), positions: [], session: null });
     }
   });
 
