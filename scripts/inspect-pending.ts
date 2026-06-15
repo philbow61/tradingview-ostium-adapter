@@ -15,7 +15,7 @@ async function main() {
   console.log(`pending: ${pending.length}  byAction:`, byAction);
   for (const o of pending.slice(0, 6)) {
     console.log(
-      JSON.stringify({ pair: `${o.pairFrom}/${o.pairTo}`, action: o.action, oid: o.oid, pid: o.pid, idx: o.idx, initiatedTime: o.initiatedTime, isCancelled: o.isCancelled }),
+      JSON.stringify({ pair: `${o.pairFrom}/${o.pairTo}`, action: o.action, oid: o.oid, pid: o.pid, initiatedTime: o.initiatedTime, isCancelled: o.isCancelled }),
     );
   }
 }
