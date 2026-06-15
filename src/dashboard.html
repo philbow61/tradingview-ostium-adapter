@@ -115,7 +115,7 @@
     .spark-svg { width: 100%; height: 40px; display: block; }
     .spark-zero { stroke: var(--text-vdim); stroke-dasharray: 2 3; opacity: 0.5; }
 
-    .grid { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; align-items: start; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
     @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
 
     .panel {
@@ -164,7 +164,12 @@
     .empty .big { font-size: 16px; margin-bottom: 4px; }
 
     /* --- timeline --- */
-    .timeline { display: flex; flex-direction: column; max-height: 560px; overflow-y: auto; }
+    .timeline { display: block; }
+    /* per-strategy timeline columns */
+    .tl-cols { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+    .tl-col { flex: 1 1 0; min-width: 240px; max-width: 380px; display: flex; flex-direction: column; background: var(--bkg); border: 1px solid var(--border); border-top: 3px solid transparent; border-radius: var(--r-lg); }
+    .tl-col-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; font-size: 12px; font-weight: 700; border-bottom: 1px solid var(--border); }
+    .tl-col-body { max-height: 460px; overflow-y: auto; padding: 0 12px; }
     .ev { display: grid; grid-template-columns: 16px 1fr; gap: 10px; padding: 10px 0 10px 8px; border-bottom: 1px solid var(--border); border-left: 3px solid transparent; }
     .ev:last-child { border-bottom: 0; }
     .ev-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; background: var(--text-vdim); }
@@ -502,36 +507,54 @@
       return (bestF && bestDt <= 1800) ? bestF.pnl : undefined; // within 30 min
     }
 
+    function evRowHtml(e, isNew) {
+      var def = EV[e.kind] || { cls: '', label: e.kind };
+      var d = e.data || {};
+      var sColor = colorForKey(e.strategyId || d.pair || '');
+      var tx = d.txHash ? '<a class="ev-link" href="' + EXPLORER + esc(d.txHash) + '" target="_blank" rel="noopener">' + esc(String(d.txHash).slice(0, 10)) + '… ↗</a>' : '';
+      var realized = (e.kind === 'closed') ? realizedForClose(d, e.ts) : undefined;
+      var pnlSpan = '';
+      if (realized != null && realized !== '') {
+        var rv = Number(realized);
+        pnlSpan = '  <span class="num ' + (rv > 0 ? 'pos' : rv < 0 ? 'neg' : 'dim') + '">' + (rv > 0 ? '+' : '') + money(realized) + '</span>';
+      }
+      return '<div class="ev ' + def.cls + (isNew ? ' ev-new' : '') + '" style="border-left-color:' + sColor + '">' +
+        '<div class="ev-dot"></div>' +
+        '<div>' +
+          '<div class="ev-row"><span class="ev-kind">' + esc(def.label) + '</span>' +
+            '<span class="ev-time">' + esc(rel(e.ts * 1000)) + '</span></div>' +
+          '<div class="ev-sub">' + esc(evSummary(e.kind, d)) + pnlSpan + '</div>' +
+          (tx ? '<div>' + tx + '</div>' : '') +
+        '</div>' +
+      '</div>';
+    }
+
+    // One column per running strategy — each its own order lifecycle, newest first.
     function renderEvents(events) {
       var host = document.getElementById('timeline');
       document.getElementById('ev-meta').textContent = events.length ? (events.length + ' events') : '';
       if (!events.length) { host.innerHTML = '<div class="empty dim">No events yet — fire a signal.</div>'; return; }
       var firstRun = seenKeys === null, prev = seenKeys || {}, nextSeen = {};
-      host.innerHTML = events.map(function (e) {
-        var def = EV[e.kind] || { cls: '', label: e.kind };
-        var d = e.data || {};
-        var key = e.ts + '|' + e.kind + '|' + (e.dedupKey || '');
-        nextSeen[key] = 1;
-        var isNew = !firstRun && !prev[key]; // flash rows that appeared since the last poll
-        var tx = d.txHash ? '<a class="ev-link" href="' + EXPLORER + esc(d.txHash) + '" target="_blank" rel="noopener">' + esc(String(d.txHash).slice(0, 10)) + '… ↗</a>' : '';
-        // realized PnL for a close, joined to on-chain fills by pair + time (submit vs execute hashes differ)
-        var realized = (e.kind === 'closed') ? realizedForClose(d, e.ts) : undefined;
-        var pnlSpan = '';
-        if (realized != null && realized !== '') {
-          var rv = Number(realized);
-          pnlSpan = '  <span class="num ' + (rv > 0 ? 'pos' : rv < 0 ? 'neg' : 'dim') + '">' + (rv > 0 ? '+' : '') + money(realized) + '</span>';
+      var groups = {}, order = [];
+      for (var i = 0; i < events.length; i++) {
+        var sid = events[i].strategyId || '—';
+        if (!groups[sid]) { groups[sid] = []; order.push(sid); } // events are newest-first → columns by recent activity
+        groups[sid].push(events[i]);
+      }
+      var html = '<div class="tl-cols">';
+      for (var g = 0; g < order.length; g++) {
+        var s = order[g], col = groups[s], color = colorForKey(s), rows = '';
+        for (var j = 0; j < col.length; j++) {
+          var e = col[j], key = e.ts + '|' + e.kind + '|' + (e.dedupKey || '');
+          nextSeen[key] = 1;
+          rows += evRowHtml(e, !firstRun && !prev[key]);
         }
-        var sColor = colorForKey(e.strategyId || d.pair || '');
-        return '<div class="ev ' + def.cls + (isNew ? ' ev-new' : '') + '" style="border-left-color:' + sColor + '">' +
-          '<div class="ev-dot"></div>' +
-          '<div>' +
-            '<div class="ev-row"><span class="ev-kind">' + esc(def.label) + '</span>' +
-              '<span class="ev-time">' + esc(rel(e.ts * 1000)) + '</span></div>' +
-            '<div class="ev-sub">' + esc(evSummary(e.kind, d)) + (e.strategyId ? '  ·  <span style="color:' + sColor + ';font-weight:600">' + esc(e.strategyId) + '</span>' : '') + pnlSpan + '</div>' +
-            (tx ? '<div>' + tx + '</div>' : '') +
-          '</div>' +
-        '</div>';
-      }).join('');
+        html += '<div class="tl-col" style="border-top-color:' + color + '">' +
+          '<div class="tl-col-head" style="color:' + color + '"><span>' + esc(s) + '</span><span class="dim">' + col.length + '</span></div>' +
+          '<div class="tl-col-body">' + rows + '</div>' +
+          '</div>';
+      }
+      host.innerHTML = html + '</div>';
       seenKeys = nextSeen;
     }
 
