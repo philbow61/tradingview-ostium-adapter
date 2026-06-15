@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Execute TradingView strategy alerts as live positions on Ostium via the Builder SDK (delegated + gasless).",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
@@ -20,7 +22,9 @@
     "order-status": "tsx scripts/order-status.ts",
     "cancel-pending": "tsx scripts/cancel-pending.ts",
     "check": "tsx scripts/check.ts",
-    "positions": "tsx scripts/positions.ts"
+    "positions": "tsx scripts/positions.ts",
+    "close-all": "tsx scripts/close-all.ts",
+    "inspect-pending": "tsx scripts/inspect-pending.ts"
   },
   "dependencies": {
     "@ostium/builder-sdk": "^0.4.0",
