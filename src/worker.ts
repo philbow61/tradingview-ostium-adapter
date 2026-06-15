@@ -159,7 +159,7 @@ export class Worker {
           this.info(job, 'submitted', { pair: pair.pairName, action: 'close', txHash: closeRes.txHash });
           const closed = await this.confirmClosed(exec, pairId);
           if (!closed) return this.reject(job, 'close_not_settled');
-          this.info(job, 'closed', { pair: pair.pairName, txHash: closeRes.txHash });
+          this.info(job, 'closed', { pair: pair.pairName, pairId, txHash: closeRes.txHash });
         }
         equity = await exec.usdcBalance(); // re-read freed collateral AFTER close settles
       }

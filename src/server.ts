@@ -137,7 +137,7 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.get('/api/positions', async (_req, reply) => {
     try {
       const [snap, session] = await Promise.all([reader.positions(), reader.session(SESSION_STARTED_AT)]);
-      return { ...snap, session };
+      return { ...snap, session, lastSignalAt: events.latest('received') };
     } catch (e) {
       return reply.code(200).send({ error: e instanceof Error ? e.message : String(e), positions: [], session: null });
     }

@@ -49,6 +49,14 @@ export class EventStore {
     }));
   }
 
+  /** Unix-seconds ts of the newest event of a kind, or null. */
+  latest(kind: string): number | null {
+    const row = this.db.prepare('SELECT ts FROM events WHERE kind = ? ORDER BY id DESC LIMIT 1').get(kind) as
+      | { ts: number }
+      | undefined;
+    return row ? row.ts : null;
+  }
+
   close(): void {
     this.db.close();
   }

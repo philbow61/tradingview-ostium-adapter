@@ -231,8 +231,8 @@
     var NET_NAMES = { testnet: 'Arbitrum Sepolia', mainnet: 'Arbitrum One' };
     var lastPositions = null; // last GOOD snapshot, kept across transient errors
     var lastStatus = null;
-    var fillsByHash = {}; // close-fill tx hash -> realized pnl, for the timeline
-    var lastSignalAt = null; // ms of the newest 'received' event, for the status-bar pill
+    var lastSession = null;  // latest session snapshot, for joining realized PnL to closed events
+    var lastSignalAt = null; // ms of the newest 'received' event (from the server), for the status pill
     var seenKeys = null;     // event keys from the previous render, to flash new rows
 
     // --- formatting helpers ---
@@ -435,12 +435,13 @@
     function renderSession(sess) {
       var host = document.getElementById('spark');
       if (!sess || !sess.count) { host.className = 'spark'; host.innerHTML = ''; return; }
+      var statStr = function (v, plus) { return v == null ? '<span class="dim">—</span>' : pnlSpanStr(v, plus); };
       var stats =
         'Win rate ' + Math.round((sess.winRate || 0) * 100) + '%' +
-        ' · Avg win ' + pnlSpanStr(sess.avgWin, true) +
-        ' · Avg loss ' + pnlSpanStr(sess.avgLoss, false) +
-        ' · Best ' + pnlSpanStr(sess.best, true) +
-        ' · Worst ' + pnlSpanStr(sess.worst, false);
+        ' · Avg win ' + statStr(sess.avgWin, true) +
+        ' · Avg loss ' + statStr(sess.avgLoss, false) +
+        ' · Best ' + statStr(sess.best, true) +
+        ' · Worst ' + statStr(sess.worst, false);
       var svg = '';
       var pts = sess.cumulative || [];
       if (pts.length >= 2) {
@@ -464,11 +465,22 @@
         '<div class="spark-stats">' + stats + '</div>' + svg;
     }
 
+    // Realized PnL for a 'closed' event: nearest close fill on the same pair (submit/execute hashes differ).
+    function realizedForClose(d, ts) {
+      if (!lastSession || !lastSession.recent || d.pairId == null) return undefined;
+      var pid = String(d.pairId), bestF = null, bestDt = Infinity;
+      for (var i = 0; i < lastSession.recent.length; i++) {
+        var f = lastSession.recent[i];
+        if (String(f.pairId) !== pid) continue;
+        var dt = Math.abs((f.time || 0) - (ts || 0));
+        if (dt < bestDt) { bestDt = dt; bestF = f; }
+      }
+      return (bestF && bestDt <= 1800) ? bestF.pnl : undefined; // within 30 min
+    }
+
     function renderEvents(events) {
       var host = document.getElementById('timeline');
       document.getElementById('ev-meta').textContent = events.length ? (events.length + ' events') : '';
-      // newest 'received' drives the status-bar "last signal" pill
-      for (var k = 0; k < events.length; k++) { if (events[k].kind === 'received') { lastSignalAt = events[k].ts * 1000; break; } }
       if (!events.length) { host.innerHTML = '<div class="empty dim">No events yet — fire a signal.</div>'; return; }
       var firstRun = seenKeys === null, prev = seenKeys || {}, nextSeen = {};
       host.innerHTML = events.map(function (e) {
@@ -478,8 +490,8 @@
         nextSeen[key] = 1;
         var isNew = !firstRun && !prev[key]; // flash rows that appeared since the last poll
         var tx = d.txHash ? '<a class="ev-link" href="' + EXPLORER + esc(d.txHash) + '" target="_blank" rel="noopener">' + esc(String(d.txHash).slice(0, 10)) + '… ↗</a>' : '';
-        // realized PnL for a close, joined from on-chain fills by tx hash
-        var realized = (e.kind === 'closed' && d.txHash) ? fillsByHash[String(d.txHash).toLowerCase()] : undefined;
+        // realized PnL for a close, joined to on-chain fills by pair + time (submit vs execute hashes differ)
+        var realized = (e.kind === 'closed') ? realizedForClose(d, e.ts) : undefined;
         var pnlSpan = '';
         if (realized != null && realized !== '') {
           var rv = Number(realized);
@@ -530,8 +542,8 @@
       renderStats(lastStatus, lastPositions);
       renderPositions(lastPositions, ok);
       var sess = lastPositions && lastPositions.session;
-      fillsByHash = {};
-      if (sess && sess.recent) sess.recent.forEach(function (f) { if (f.hash) fillsByHash[String(f.hash).toLowerCase()] = f.pnl; });
+      lastSession = sess || null;
+      if (lastPositions && lastPositions.lastSignalAt != null) lastSignalAt = lastPositions.lastSignalAt * 1000;
       renderSession(sess);
       if (Array.isArray(events)) renderEvents(events);
       setConn(ok ? 'ok' : 'err', ok ? 'live' : 'reconnecting…');
