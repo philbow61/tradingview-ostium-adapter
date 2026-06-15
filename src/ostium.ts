@@ -56,6 +56,7 @@ export interface CloseArgs {
 export interface IExecutor {
   pairs(): Promise<Pair[]>;
   pairById(pairId: string): Promise<Pair | undefined>;
+  price(pairId: string): Promise<number>;
   positions(): Promise<Position[]>;
   usdcBalance(): Promise<number>;
   positionFor(positions: Position[], pairId: string): PositionView;
@@ -100,6 +101,24 @@ export class OstiumExecutor implements IExecutor {
 
   async pairById(pairId: string): Promise<Pair | undefined> {
     return (await this.pairs()).find((p) => String(p.pairId) === String(pairId));
+  }
+
+  /**
+   * Live mark price for a pair, sourced from the real-time oracle feed (getAllPrices). This exists
+   * because getPairs().midPx is intermittently 0 for some pairs (observed on oil/WTI on testnet) —
+   * and openTrade reverts WrongParams() on a 0 open price. Falls back to pair midPx, then returns 0
+   * so callers can refuse to submit rather than burn a gasless op on a guaranteed revert.
+   */
+  async price(pairId: string): Promise<number> {
+    try {
+      const resp = (await this.client.getAllPrices()) as { prices?: Record<string, { mid?: string }> };
+      const mid = Number(resp.prices?.[String(pairId)]?.mid);
+      if (Number.isFinite(mid) && mid > 0) return mid;
+    } catch {
+      /* oracle feed unavailable — fall back to the pair's midPx below */
+    }
+    const mid = Number((await this.pairById(String(pairId)))?.midPx);
+    return Number.isFinite(mid) && mid > 0 ? mid : 0;
   }
 
   async positions(): Promise<Position[]> {

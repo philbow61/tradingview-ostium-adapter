@@ -129,6 +129,9 @@ export class Worker {
       if (!pInfo.isMarketOpen) return this.reject(job, 'market_closed');
       pairId = String(pInfo.pairId);
       price = Number(pInfo.midPx);
+      // getPairs().midPx is intermittently 0 for some pairs (seen on oil/WTI); fall back to the
+      // real-time oracle feed so we never carry a 0 open price into openTrade (→ WrongParams).
+      if (!(price > 0)) price = await exec.price(pairId);
       limits = {
         minNotional: Number(pInfo.minNtl) || config.global.minCollateralUsdc,
         minLeverage: 1,
@@ -168,6 +171,9 @@ export class Worker {
     }
 
     // --- LIVE ---
+    // Last-line guard: never submit a trade with a non-positive reference price (both the open and
+    // close legs pass it on-chain, and openTrade reverts WrongParams() on a 0 open price).
+    if (!(price > 0)) return this.reject(job, 'no_price');
     const slippageBps = Math.round(strat.slippagePct * 100);
     const isFlip = plan.close && plan.open;
     const ex = exec; // live ⇒ exec is defined; stable ref for the account-lock closure

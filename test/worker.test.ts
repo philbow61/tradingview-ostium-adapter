@@ -22,11 +22,16 @@ class FakeExecutor implements IExecutor {
   lastOpen?: OpenMarketArgs;
   cancelled: number[] = [];
 
+  midPx = '64000'; // getPairs().midPx — can be set to '0' to exercise the oracle fallback
   async pairs() {
-    return [{ pairId: '0', pairFrom: 'BTC', pairTo: 'USD', isMarketOpen: this.marketOpen, midPx: '64000', maxLeverage: 50, minNtl: '5.0' }] as any;
+    return [{ pairId: '0', pairFrom: 'BTC', pairTo: 'USD', isMarketOpen: this.marketOpen, midPx: this.midPx, maxLeverage: 50, minNtl: '5.0' }] as any;
   }
   async pairById(id: string) {
     return (await this.pairs()).find((p: any) => String(p.pairId) === id);
+  }
+  oraclePrice = 64000; // real-time feed fallback (used when pairs().midPx is 0)
+  async price(_id: string) {
+    return this.oraclePrice;
   }
   async positions() {
     return this.positionsList as any;
@@ -131,6 +136,25 @@ describe('Worker live lifecycle (fake executor)', () => {
     expect(fake.calls).toEqual(['close', 'open']);
     expect(fake.lastOpen?.isLong).toBe(false);
     expect(dedup.status(j.dedupKey)).toBe('FILLED');
+  });
+
+  it('midPx 0 -> falls back to oracle price, opens with it (regression: oil WrongParams)', async () => {
+    fake.midPx = '0'; // getPairs().midPx flaked to 0 (observed on oil/WTI)
+    fake.oraclePrice = 79.07; // real-time feed still has the price
+    const j = job();
+    await worker().process(j);
+    expect(fake.calls).toEqual(['open']);
+    expect(fake.lastOpen?.price).toBe(79.07); // never submits the 0 price that reverts WrongParams
+    expect(dedup.status(j.dedupKey)).toBe('FILLED');
+  });
+
+  it('no price anywhere (midPx 0 + oracle 0) -> rejected no_price, no open', async () => {
+    fake.midPx = '0';
+    fake.oraclePrice = 0;
+    const j = job();
+    await worker().process(j);
+    expect(fake.calls).toEqual([]); // refuses to burn a gasless op on a guaranteed revert
+    expect(dedup.status(j.dedupKey)).toBe('FAILED');
   });
 
   it('kill switch -> FAILED, no calls', async () => {
