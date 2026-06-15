@@ -139,3 +139,22 @@ strategies:
     risk:
       max_open_positions: 1
       require_sl_for_risk_mode: true
+
+  # Catch-all: drive this from your OWN TradingView strategy (no Pine edits — see README).
+  # allowed_pairs: [] means it trades whatever Ostium-listed market the chart resolves to.
+  custom-001:
+    enabled: true
+    mode: live
+    secret_env: STRAT_DEMO_SECRET
+    default_leverage: 10
+    max_leverage: 50
+    slippage_pct: 1.0
+    sizing:
+      default_mode: fixed_notional
+      default_value: 100
+      max_position_notional: 2000
+      allow_payload_override: true
+    allowed_pairs: []
+    risk:
+      max_open_positions: 1
+      require_sl_for_risk_mode: true

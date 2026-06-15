@@ -102,8 +102,18 @@ Run one copy of [`strategies/ma_cross_ostium.pine`](strategies/ma_cross_ostium.p
 | `OANDA:EURUSD` | `eurusd-demo-001` | EUR/USD | forex hours |
 
 One webhook URL + one secret cover all markets — the adapter routes by `strategy_id` + `secret`, not
-the URL. Each `strategy_id` is gated to its pair (set `allowed_pairs: []` in config for a catch-all).
-The alert runs on TradingView's servers; the adapter only runs while your Repl/process is up.
+the URL. The alert runs on TradingView's servers; the adapter only runs while your Repl/process is up.
+
+### Use your own existing strategy (no Pine edits)
+The adapter only needs the webhook JSON with a target-state `sentiment`, so any strategy can drive it.
+Leave its code alone and set the **alert Message** to this (TradingView's `{{strategy.market_position}}`
+is literally `long`/`short`/`flat`):
+```json
+{"secret":"YOUR_STRAT_DEMO_SECRET","strategy_id":"custom-001","sentiment":"{{strategy.market_position}}","ticker":"{{ticker}}","nonce":"{{strategy.order.id}}-{{time}}"}
+```
+`custom-001` is a catch-all in `config.example.yaml` (`allowed_pairs: []` → any Ostium-listed market the
+chart is on). It mirrors **direction/timing only** — sizing comes from config, one net position per pair
+(no pyramiding / partial exits).
 
 > **Notes:** testnet-first, self-custody, single-operator. A leaked delegate key can trade but **cannot
 > move funds**. Live ≠ backtest (different feed, funding, slippage, liquidation).
