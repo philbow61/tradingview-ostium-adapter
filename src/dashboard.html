@@ -45,6 +45,8 @@
     a:focus-visible, .ev-link:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; border-radius: 4px; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
     .loading { animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes flash { from { background: rgba(255, 90, 25, 0.16); } to { background: transparent; } }
+    .ev.ev-new { animation: flash 1.4s ease-out; }
 
     /* --- top bar --- */
     header {
@@ -112,6 +114,7 @@
       background: var(--elevated); border: 1px solid var(--border); border-radius: var(--r-lg);
     }
     .spark-label { font-size: 12px; font-weight: 600; color: var(--text-vdim); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 8px; }
+    .spark-stats { font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
     .spark-svg { width: 100%; height: 40px; display: block; }
     .spark-zero { stroke: var(--text-vdim); stroke-dasharray: 2 3; opacity: 0.5; }
 
@@ -187,6 +190,7 @@
     <div class="spacer"></div>
     <span class="pill" id="net-pill"><span class="dot warn"></span><span id="net-label">connecting…</span></span>
     <span class="pill" id="conn-pill"><span class="dot" id="conn-dot"></span><span id="conn-label">live</span></span>
+    <span class="pill" id="signal-pill"><span class="dot" id="signal-dot"></span><span id="signal-label">…</span></span>
     <span class="clock num" id="clock">--:--:--</span>
   </header>
 
@@ -228,6 +232,8 @@
     var lastPositions = null; // last GOOD snapshot, kept across transient errors
     var lastStatus = null;
     var fillsByHash = {}; // close-fill tx hash -> realized pnl, for the timeline
+    var lastSignalAt = null; // ms of the newest 'received' event, for the status-bar pill
+    var seenKeys = null;     // event keys from the previous render, to flash new rows
 
     // --- formatting helpers ---
     function n(x) { var v = Number(x); return isFinite(v) ? v : null; }
@@ -364,8 +370,10 @@
       deduped:          { cls: '',         label: 'Duplicate, ignored' },
       dry_run_plan:     { cls: 'k-yellow', label: 'Dry-run plan' },
       flip_in_progress: { cls: 'k-orange', label: 'Flipping position' },
+      submitted:        { cls: 'k-orange', label: 'Submitted on-chain (pending)' },
       opened:           { cls: 'k-green',  label: 'Position opened' },
       closed:           { cls: 'k-orange', label: 'Position closed' },
+      reclaimed:        { cls: 'k-yellow', label: 'Pending open reclaimed' },
       noop:             { cls: '',         label: 'No-op' },
       stale:            { cls: 'k-yellow', label: 'Stale, ignored' },
       reject:           { cls: 'k-red',    label: 'Rejected' }
@@ -397,6 +405,8 @@
           return parts.join(' · ');
         }
         case 'flip_in_progress': return (d.from || '?') + ' → ' + (d.to || '?') + ' · ' + (d.pair || '');
+        case 'submitted': return (d.action ? String(d.action).toUpperCase() + ' ' : '') + (d.pair || '') + (d.side ? ' · ' + d.side : '') + ' · awaiting keeper';
+        case 'reclaimed': return (d.pair || '') + (d.orderId != null ? ' · order ' + d.orderId : '') + ' · collateral returned';
         case 'opened': {
           var s = (d.pair || ''); if (d.notional) s += ' · ' + money(d.notional); if (d.leverage) s += ' @ ' + d.leverage + '×';
           return s;
@@ -417,37 +427,56 @@
         default: return '';
       }
     }
-    // --- cumulative session-PnL sparkline (inline SVG, no deps) ---
-    function renderSpark(points) {
+    // --- session panel: stats + cumulative-PnL sparkline (inline SVG, no deps) ---
+    function pnlSpanStr(v, plus) {
+      var x = Number(v), c = x > 0 ? 'pos' : x < 0 ? 'neg' : 'dim';
+      return '<span class="num ' + c + '">' + (plus && x > 0 ? '+' : '') + money(v) + '</span>';
+    }
+    function renderSession(sess) {
       var host = document.getElementById('spark');
-      if (!points || points.length < 2) { host.className = 'spark'; host.innerHTML = ''; return; }
-      var W = 100, H = 30, nn = points.length;
-      var ys = points.map(function (p) { return p.pnl; });
-      var min = Math.min.apply(null, ys.concat([0]));
-      var max = Math.max.apply(null, ys.concat([0]));
-      var range = (max - min) || 1;
-      var yOf = function (v) { return (H - ((v - min) / range) * H).toFixed(1); };
-      var path = points.map(function (p, i) {
-        return (i === 0 ? 'M' : 'L') + ((i / (nn - 1)) * W).toFixed(1) + ',' + yOf(p.pnl);
-      }).join(' ');
-      var last = ys[ys.length - 1];
-      var stroke = last >= 0 ? 'var(--green)' : 'var(--red)';
+      if (!sess || !sess.count) { host.className = 'spark'; host.innerHTML = ''; return; }
+      var stats =
+        'Win rate ' + Math.round((sess.winRate || 0) * 100) + '%' +
+        ' · Avg win ' + pnlSpanStr(sess.avgWin, true) +
+        ' · Avg loss ' + pnlSpanStr(sess.avgLoss, false) +
+        ' · Best ' + pnlSpanStr(sess.best, true) +
+        ' · Worst ' + pnlSpanStr(sess.worst, false);
+      var svg = '';
+      var pts = sess.cumulative || [];
+      if (pts.length >= 2) {
+        var W = 100, H = 30, nn = pts.length;
+        var ys = pts.map(function (p) { return p.pnl; });
+        var min = Math.min.apply(null, ys.concat([0]));
+        var max = Math.max.apply(null, ys.concat([0]));
+        var range = (max - min) || 1;
+        var yOf = function (v) { return (H - ((v - min) / range) * H).toFixed(1); };
+        var path = pts.map(function (p, i) { return (i === 0 ? 'M' : 'L') + ((i / (nn - 1)) * W).toFixed(1) + ',' + yOf(p.pnl); }).join(' ');
+        var last = ys[ys.length - 1];
+        var stroke = last >= 0 ? 'var(--green)' : 'var(--red)';
+        svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" class="spark-svg">' +
+            '<line class="spark-zero" x1="0" y1="' + yOf(0) + '" x2="' + W + '" y2="' + yOf(0) + '"/>' +
+            '<path d="' + path + '" fill="none" stroke="' + stroke + '" stroke-width="1.5" vector-effect="non-scaling-stroke"/>' +
+          '</svg>';
+      }
       host.className = 'spark show';
       host.innerHTML =
-        '<div class="spark-label">Session PnL over time · <span class="num ' + (last >= 0 ? 'pos' : 'neg') + '">' + (last > 0 ? '+' : '') + money(last) + '</span></div>' +
-        '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" class="spark-svg">' +
-          '<line class="spark-zero" x1="0" y1="' + yOf(0) + '" x2="' + W + '" y2="' + yOf(0) + '"/>' +
-          '<path d="' + path + '" fill="none" stroke="' + stroke + '" stroke-width="1.5" vector-effect="non-scaling-stroke"/>' +
-        '</svg>';
+        '<div class="spark-label">Session · ' + sess.count + ' trade' + (sess.count === 1 ? '' : 's') + ' · ' + pnlSpanStr(sess.realizedPnl, true) + '</div>' +
+        '<div class="spark-stats">' + stats + '</div>' + svg;
     }
 
     function renderEvents(events) {
       var host = document.getElementById('timeline');
       document.getElementById('ev-meta').textContent = events.length ? (events.length + ' events') : '';
+      // newest 'received' drives the status-bar "last signal" pill
+      for (var k = 0; k < events.length; k++) { if (events[k].kind === 'received') { lastSignalAt = events[k].ts * 1000; break; } }
       if (!events.length) { host.innerHTML = '<div class="empty dim">No events yet — fire a signal.</div>'; return; }
+      var firstRun = seenKeys === null, prev = seenKeys || {}, nextSeen = {};
       host.innerHTML = events.map(function (e) {
         var def = EV[e.kind] || { cls: '', label: e.kind };
         var d = e.data || {};
+        var key = e.ts + '|' + e.kind + '|' + (e.dedupKey || '');
+        nextSeen[key] = 1;
+        var isNew = !firstRun && !prev[key]; // flash rows that appeared since the last poll
         var tx = d.txHash ? '<a class="ev-link" href="' + EXPLORER + esc(d.txHash) + '" target="_blank" rel="noopener">' + esc(String(d.txHash).slice(0, 10)) + '… ↗</a>' : '';
         // realized PnL for a close, joined from on-chain fills by tx hash
         var realized = (e.kind === 'closed' && d.txHash) ? fillsByHash[String(d.txHash).toLowerCase()] : undefined;
@@ -456,7 +485,7 @@
           var rv = Number(realized);
           pnlSpan = '  <span class="num ' + (rv > 0 ? 'pos' : rv < 0 ? 'neg' : 'dim') + '">' + (rv > 0 ? '+' : '') + money(realized) + '</span>';
         }
-        return '<div class="ev ' + def.cls + '">' +
+        return '<div class="ev ' + def.cls + (isNew ? ' ev-new' : '') + '">' +
           '<div class="ev-dot"></div>' +
           '<div>' +
             '<div class="ev-row"><span class="ev-kind">' + esc(def.label) + '</span>' +
@@ -466,6 +495,7 @@
           '</div>' +
         '</div>';
       }).join('');
+      seenKeys = nextSeen;
     }
 
     // --- polling ---
@@ -502,12 +532,22 @@
       var sess = lastPositions && lastPositions.session;
       fillsByHash = {};
       if (sess && sess.recent) sess.recent.forEach(function (f) { if (f.hash) fillsByHash[String(f.hash).toLowerCase()] = f.pnl; });
-      renderSpark(sess && sess.cumulative);
+      renderSession(sess);
       if (Array.isArray(events)) renderEvents(events);
       setConn(ok ? 'ok' : 'err', ok ? 'live' : 'reconnecting…');
     }
 
-    function tickClock() { document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }
+    function tickClock() {
+      document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+      var dot = document.getElementById('signal-dot');
+      var label = document.getElementById('signal-label');
+      if (lastSignalAt == null) { dot.className = 'dot'; label.textContent = 'waiting for first signal'; }
+      else {
+        var age = (Date.now() - lastSignalAt) / 1000;
+        dot.className = 'dot ' + (age < 90 ? 'ok' : '');
+        label.textContent = 'last signal ' + rel(lastSignalAt);
+      }
+    }
 
     // Self-scheduling loop so a slow poll can never overlap the next one.
     var tick = 0;

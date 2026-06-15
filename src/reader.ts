@@ -82,6 +82,11 @@ export interface SessionStats {
   count: number;
   wins: number;
   losses: number;
+  winRate: number; // 0..1
+  avgWin: number; // mean positive closedPnl (>= 0)
+  avgLoss: number; // mean negative closedPnl (<= 0)
+  best: number; // largest single win
+  worst: number; // largest single loss (<= 0)
   recent: CloseFill[]; // newest first
   cumulative: Array<{ t: number; pnl: number }>; // running total, oldest→newest
 }
@@ -154,7 +159,7 @@ export class DashboardReader {
 
   /** Realized-PnL stats for the current session, from on-chain close fills (Fill.closedPnl). */
   async session(sinceSeconds: number): Promise<SessionStats> {
-    const empty: SessionStats = { startedAt: sinceSeconds, realizedPnl: 0, count: 0, wins: 0, losses: 0, recent: [], cumulative: [] };
+    const empty: SessionStats = { startedAt: sinceSeconds, realizedPnl: 0, count: 0, wins: 0, losses: 0, winRate: 0, avgWin: 0, avgLoss: 0, best: 0, worst: 0, recent: [], cumulative: [] };
     const trader = this.opts.trader;
     if (!trader) return empty;
     const c = await this.read();
@@ -170,11 +175,22 @@ export class DashboardReader {
     let cum = 0;
     let wins = 0;
     let losses = 0;
+    let winSum = 0;
+    let lossSum = 0;
+    let best = 0;
+    let worst = 0;
     const cumulative = closes.map((f) => {
       const p = Number(f.closedPnl) || 0;
       cum += p;
-      if (p > 0) wins++;
-      else if (p < 0) losses++;
+      if (p > 0) {
+        wins++;
+        winSum += p;
+        if (p > best) best = p;
+      } else if (p < 0) {
+        losses++;
+        lossSum += p;
+        if (p < worst) worst = p;
+      }
       return { t: f.time, pnl: cum };
     });
     const recent: CloseFill[] = [...closes].reverse().slice(0, 50).map((f) => ({
@@ -187,7 +203,20 @@ export class DashboardReader {
       hash: f.hash,
       time: f.time,
     }));
-    return { startedAt: sinceSeconds, realizedPnl: cum, count: closes.length, wins, losses, recent, cumulative };
+    return {
+      startedAt: sinceSeconds,
+      realizedPnl: cum,
+      count: closes.length,
+      wins,
+      losses,
+      winRate: closes.length ? wins / closes.length : 0,
+      avgWin: wins ? winSum / wins : 0,
+      avgLoss: losses ? lossSum / losses : 0,
+      best,
+      worst,
+      recent,
+      cumulative,
+    };
   }
 
   /** Cached (~30s) on-chain delegate authorization check. Returns configured:false if no key. */

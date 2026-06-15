@@ -155,6 +155,8 @@ export class Worker {
         const pos = exec.positionFor(await exec.positions(), pairId);
         if (pos.idx != null) {
           const closeRes = await exec.close({ pairId, idx: pos.idx, price, slippageBps });
+          // Surface the on-chain tx immediately (pending) so a stalled keeper is visible.
+          this.info(job, 'submitted', { pair: pair.pairName, action: 'close', txHash: closeRes.txHash });
           const closed = await this.confirmClosed(exec, pairId);
           if (!closed) return this.reject(job, 'close_not_settled');
           this.info(job, 'closed', { pair: pair.pairName, txHash: closeRes.txHash });
@@ -176,10 +178,15 @@ export class Worker {
           ...(sl != null ? { stopLoss: sl } : {}),
           ...(sig.limit_price != null ? { limitPrice: sig.limit_price } : {}),
         });
+        // Surface the on-chain tx immediately (pending) so a stalled keeper is visible.
+        this.info(job, 'submitted', { pair: pair.pairName, action: 'open', side: sig.sentiment, txHash: res.txHash });
         const outcome = await this.confirmOpen(exec, res.txHash, pairId, sig.sentiment);
         if (outcome.kind === 'cancelled') return this.reject(job, `open_cancelled:${outcome.reason}`);
         if (outcome.kind === 'timeout') {
-          if (outcome.orderId != null) await exec.cancelPendingOpen(outcome.orderId);
+          if (outcome.orderId != null) {
+            const cancelRes = await exec.cancelPendingOpen(outcome.orderId);
+            this.info(job, 'reclaimed', { pair: pair.pairName, txHash: cancelRes.txHash, orderId: outcome.orderId });
+          }
           return this.reject(job, 'open_not_settled_reclaimed');
         }
         this.info(job, 'opened', {
