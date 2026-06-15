@@ -1,6 +1,20 @@
-# Adapter configuration. Copy to config.yaml (git-ignored) and edit.
-# Secrets live in .env (DELEGATE_PRIVATE_KEY, TRADER_ADDRESS, per-strategy secrets).
+# Adapter configuration. Copy to config.yaml (git-ignored) to customize, or run as-is.
+# Secrets live in env / Replit Secrets (DELEGATE_PRIVATE_KEY, TRADER_ADDRESS, STRAT_DEMO_SECRET).
 # The delegate key + trader address are GLOBAL (one delegate per process).
+#
+# Multi-market demo: each strategy below maps a strategy_id -> one Ostium pair. Run the example Pine
+# (strategies/ma_cross_ostium.pine) on the matching TradingView chart, set its `strategy_id` + the
+# shared `Adapter secret`, and it fires onto that market. All strategies share STRAT_DEMO_SECRET, so
+# you set ONE secret and use it in every Pine. Strategy_id  ->  TradingView chart  ->  Ostium pair:
+#   btc-demo-001     BINANCE:BTCUSDT    BTC/USD    (24/7)
+#   eth-demo-001     BINANCE:ETHUSDT    ETH/USD    (24/7)
+#   sol-demo-001     BINANCE:SOLUSDT    SOL/USD    (24/7)
+#   gold-demo-001    OANDA:XAUUSD       XAU/USD    (market hours)
+#   oil-demo-001     TVC:USOIL          CL/USD     (market hours)
+#   eurusd-demo-001  OANDA:EURUSD       EUR/USD    (forex hours)
+# ⚠️ LIVE by default — trades real positions on Ostium testnet once Secrets are set and your delegate
+#    is registered (Ostium UI). Set a strategy's `mode: dry_run` for logs-only. Tip: for a catch-all
+#    that trades whatever chart it's on, set `allowed_pairs: []` (allows any pair the ticker resolves to).
 
 global:
   network: testnet            # testnet (Arbitrum Sepolia) | mainnet (Arbitrum One)
@@ -16,16 +30,72 @@ global:
   min_collateral_usdc: 5.0    # fallback floor; per-pair minLevPos overrides
 
 strategies:
-  gold-demo-001:
+  # --- 24/7 crypto (work any day/time) ---
+  btc-demo-001:
     enabled: true
-    mode: dry_run             # dry_run (no tx) | live
-    secret_env: STRAT_GOLD_SECRET
+    mode: live
+    secret_env: STRAT_DEMO_SECRET
     default_leverage: 10
     max_leverage: 50
     slippage_pct: 1.0
     sizing:
       default_mode: fixed_notional   # fixed_notional | percent_of_equity | risk_percent
       default_value: 100             # USD notional (fixed_notional)
+      max_position_notional: 2000
+      allow_payload_override: true
+    allowed_pairs:
+      - BTC/USD
+    risk:
+      max_open_positions: 1
+      require_sl_for_risk_mode: true
+
+  eth-demo-001:
+    enabled: true
+    mode: live
+    secret_env: STRAT_DEMO_SECRET
+    default_leverage: 10
+    max_leverage: 50
+    slippage_pct: 1.0
+    sizing:
+      default_mode: fixed_notional
+      default_value: 100
+      max_position_notional: 2000
+      allow_payload_override: true
+    allowed_pairs:
+      - ETH/USD
+    risk:
+      max_open_positions: 1
+      require_sl_for_risk_mode: true
+
+  sol-demo-001:
+    enabled: true
+    mode: live
+    secret_env: STRAT_DEMO_SECRET
+    default_leverage: 10
+    max_leverage: 50
+    slippage_pct: 1.0
+    sizing:
+      default_mode: fixed_notional
+      default_value: 100
+      max_position_notional: 2000
+      allow_payload_override: true
+    allowed_pairs:
+      - SOL/USD
+    risk:
+      max_open_positions: 1
+      require_sl_for_risk_mode: true
+
+  # --- RWAs (commodities / forex — market-hours only; closed on weekends/off-hours) ---
+  gold-demo-001:
+    enabled: true
+    mode: live
+    secret_env: STRAT_DEMO_SECRET
+    default_leverage: 10
+    max_leverage: 50
+    slippage_pct: 1.0
+    sizing:
+      default_mode: fixed_notional
+      default_value: 100
       max_position_notional: 2000
       allow_payload_override: true
     allowed_pairs:
@@ -36,8 +106,8 @@ strategies:
 
   oil-demo-001:
     enabled: true
-    mode: dry_run
-    secret_env: STRAT_OIL_SECRET
+    mode: live
+    secret_env: STRAT_DEMO_SECRET
     default_leverage: 10
     max_leverage: 50
     slippage_pct: 1.5
@@ -52,23 +122,20 @@ strategies:
       max_open_positions: 1
       require_sl_for_risk_mode: true
 
-  # Demo strategy. BTC trades 24/7, so it works any day/time.
-  # ⚠️ LIVE by default — trades real positions on Ostium testnet once signing Secrets are set and
-  #    your delegate is registered (Ostium UI). Set `mode: dry_run` for logs-only (no trades).
-  btc-demo-001:
+  eurusd-demo-001:
     enabled: true
     mode: live
-    secret_env: STRAT_BTC_SECRET
+    secret_env: STRAT_DEMO_SECRET
     default_leverage: 10
     max_leverage: 50
-    slippage_pct: 1.0
+    slippage_pct: 0.5
     sizing:
       default_mode: fixed_notional
       default_value: 100
       max_position_notional: 2000
       allow_payload_override: true
     allowed_pairs:
-      - BTC/USD
+      - EUR/USD
     risk:
       max_open_positions: 1
       require_sl_for_risk_mode: true

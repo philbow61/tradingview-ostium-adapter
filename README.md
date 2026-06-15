@@ -40,14 +40,14 @@ TradingView can reach it without cloudflared) and an encrypted **Secrets** store
    - `DELEGATE_PRIVATE_KEY` — your **delegate** key (NOT your funds-wallet key)
    - `TRADER_ADDRESS` — your funds wallet (public address; holds **testnet** USDC)
    - `RPC_URL` — an Arbitrum **Sepolia** RPC URL (e.g. Alchemy)
-   - `STRAT_BTC_SECRET` — any random string (the webhook shared secret)
+   - `STRAT_DEMO_SECRET` — any random string (shared webhook secret for all demo strategies)
 
    > Network is pre-pinned to testnet via `.replit`. Leave it — going to mainnet needs a deliberate
    > `ALLOW_MAINNET=true` and real funds.
    >
    > **Faster:** click **"Edit as JSON"** in the Secrets tab and paste all of them at once:
    > ```json
-   > { "DELEGATE_PRIVATE_KEY": "0x…", "TRADER_ADDRESS": "0x…", "RPC_URL": "https://…", "STRAT_BTC_SECRET": "any-random-string" }
+   > { "DELEGATE_PRIVATE_KEY": "0x…", "TRADER_ADDRESS": "0x…", "RPC_URL": "https://…", "STRAT_DEMO_SECRET": "any-random-string" }
    > ```
    > (Replit can't pre-fill secret values from the repo — for security, every fork sets its own.)
 3. **Register your delegate via the Ostium UI** — in Ostium's Builder/delegate flow, point your
@@ -96,7 +96,7 @@ DELEGATE_PRIVATE_KEY=0x...     # the DELEGATE key (NOT your funds wallet key)
 TRADER_ADDRESS=0x...           # your funds wallet (holds USDC) — public address
 OSTIUM_NETWORK=testnet         # testnet (Arbitrum Sepolia) | mainnet (Arbitrum One)
 RPC_URL=https://arb-sepolia.g.alchemy.com/v2/<key>
-STRAT_BTC_SECRET=<any-random-string>   # shared secret for the demo strategy
+STRAT_DEMO_SECRET=<any-random-string>  # shared secret for all demo strategies
 ```
 The adapter only ever holds the **delegate** key. Your funds-wallet key stays out of the server.
 
@@ -154,9 +154,26 @@ order-lifecycle timeline).
 
 ## 8 · Wire TradingView
 1. **Pine Editor** → paste [`strategies/ma_cross_ostium.pine`](strategies/ma_cross_ostium.pine) → **Add to chart** on a **live 24/7 crypto** symbol, e.g. `BINANCE:BTCUSDT`, **1-minute**.
-2. Strategy **settings (⚙)**: `strategy_id` = `btc-demo-001`, `Adapter secret` = your `STRAT_BTC_SECRET`, `Dry run` = **off**, optional `Take-profit %` / `Stop-loss %` (default 5 / 2; `0` = off → exit only on the next cross). (Use Fast 9 / Slow 21 for deliberate signals, or 2/3 for frequent ones.)
+2. Strategy **settings (⚙)**: `strategy_id` = the market's id (e.g. `btc-demo-001` — see the table below), `Adapter secret` = your `STRAT_DEMO_SECRET`, `Dry run` = **off**, optional `Take-profit %` / `Stop-loss %` (default 5 / 2; `0` = off → exit only on the next cross). (Use Fast 9 / Slow 21 for deliberate signals, or 2/3 for frequent ones.)
 3. **Create Alert**: Condition = the strategy / **"Order fills only"** · Message = exactly `{{strategy.order.alert_message}}` · Notifications → **Webhook URL** = `https://<random>.trycloudflare.com/tv/demo`.
 4. On each MA cross, TradingView POSTs → the adapter opens / flips / closes a live position.
+
+**Demo multiple markets at once** — run one copy of the Pine per chart, all with the same
+`STRAT_DEMO_SECRET` and the same webhook URL; just set each chart's `strategy_id` per the config:
+
+| TradingView chart | `strategy_id` | Ostium pair | Hours |
+|---|---|---|---|
+| `BINANCE:BTCUSDT` | `btc-demo-001` | BTC/USD | 24/7 |
+| `BINANCE:ETHUSDT` | `eth-demo-001` | ETH/USD | 24/7 |
+| `BINANCE:SOLUSDT` | `sol-demo-001` | SOL/USD | 24/7 |
+| `OANDA:XAUUSD` | `gold-demo-001` | XAU/USD | market hours |
+| `TVC:USOIL` | `oil-demo-001` | CL/USD | market hours |
+| `OANDA:EURUSD` | `eurusd-demo-001` | EUR/USD | forex hours |
+
+The webhook path (`/tv/demo`) is the same for all — the adapter routes by `strategy_id` + `secret` in
+the payload, not the URL. Each strategy is gated to its own pair (`allowed_pairs`), so the right Pine
+must be on the right chart. (For a catch-all that trades whatever chart it's on, set a strategy's
+`allowed_pairs: []`.)
 
 ## 9 · Watch it trade
 Open the **dashboard** → <http://localhost:8080/> (or `https://<random>.trycloudflare.com/` through

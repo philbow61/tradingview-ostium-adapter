@@ -11,7 +11,7 @@ import 'dotenv/config';
 const HOST = process.env.HOST ?? '127.0.0.1';
 const PORT = process.env.PORT ?? '8080';
 const PATHSEG = process.env.TV_PATH ?? 'demo';
-const SECRET = process.env.STRAT_BTC_SECRET ?? '';
+const SECRET = process.env.STRAT_DEMO_SECRET ?? '';
 const TP_PCT = Number(process.env.TP_PCT ?? 5); // take-profit %, 0 = off
 const SL_PCT = Number(process.env.SL_PCT ?? 2); // stop-loss %, 0 = off
 const BASE = `http://${HOST}:${PORT}`;
@@ -66,7 +66,7 @@ async function streamEvents(maxMs = 300_000, idleStopMs = 25_000) {
 }
 
 async function main() {
-  if (!SECRET) throw new Error('STRAT_BTC_SECRET not set in .env (must match config.yaml btc-demo-001).');
+  if (!SECRET) throw new Error('STRAT_DEMO_SECRET not set in .env (must match config.yaml).');
   const health = (await (await fetch(`${BASE}/healthz`)).json()) as { network: string; strategies: string[] };
   console.log(`receiver: ${BASE}  network=${health.network}  strategies=${health.strategies}`);
 

@@ -2,13 +2,16 @@
 // Example TradingView strategy wired to the Ostium adapter.
 // A simple MA crossover that flips long/short and emits the adapter's webhook JSON on each order.
 //
-// Setup:
-//   1. Add this strategy to a chart (e.g. OANDA:XAUUSD for gold, TVC:USOIL for oil).
-//   2. Fill the `Adapter secret` and `strategy_id` inputs (must match config.yaml).
+// Setup (run one copy per market — same secret, different chart + strategy_id):
+//   1. Add this strategy to the market's chart and set `strategy_id` to match config.yaml:
+//        BINANCE:BTCUSDT -> btc-demo-001      OANDA:XAUUSD -> gold-demo-001
+//        BINANCE:ETHUSDT -> eth-demo-001      TVC:USOIL    -> oil-demo-001
+//        BINANCE:SOLUSDT -> sol-demo-001      OANDA:EURUSD -> eurusd-demo-001
+//   2. Set `Adapter secret` to your shared STRAT_DEMO_SECRET (same value for every chart).
 //   3. Create an alert on the strategy:
 //        Condition = this strategy, "Order fills only"
 //        Message   = {{strategy.order.alert_message}}
-//        Notifications → Webhook URL = https://<your-host>/tv/<random-path>
+//        Notifications → Webhook URL = https://<your-host>/tv/demo
 //   4. Set `Dry run` = false when you want it to trade for real.
 //
 // The adapter acts on `sentiment` (desired end-state), so the long/short flip is handled safely.
@@ -20,8 +23,8 @@ strategy("Ostium MA Cross", overlay = true,
 // --- inputs ---
 fastLen  = input.int(10, "Fast MA")
 slowLen  = input.int(50, "Slow MA")
-secret   = input.string("PASTE_PER_STRATEGY_SECRET", "Adapter secret")
-stratId  = input.string("gold-demo-001", "strategy_id (matches config.yaml)")
+secret   = input.string("PASTE_STRAT_DEMO_SECRET", "Adapter secret")
+stratId  = input.string("btc-demo-001", "strategy_id (matches config.yaml)")
 notional = input.float(100, "Notional (USD)")
 lev      = input.int(10, "Leverage")
 tpPct    = input.float(5, "Take-profit % (0 = off)")

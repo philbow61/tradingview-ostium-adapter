@@ -7,8 +7,7 @@ import type { FastifyInstance } from 'fastify';
 
 process.env.DATA_DIR = mkdtempSync(join(tmpdir(), 'tvostium-'));
 process.env.ADAPTER_CONFIG = 'config.example.yaml';
-process.env.STRAT_GOLD_SECRET = 'testsecret';
-process.env.STRAT_OIL_SECRET = 'testsecret-oil';
+process.env.STRAT_DEMO_SECRET = 'testsecret';
 delete process.env.DELEGATE_PRIVATE_KEY;
 
 const { buildServer } = await import('../src/server');

@@ -7,7 +7,7 @@ entrypoint = "src/server.ts"
 
 [env]
 # Bind a public interface and pin testnet. Secrets (DELEGATE_PRIVATE_KEY, TRADER_ADDRESS,
-# RPC_URL, STRAT_BTC_SECRET) go in the Replit "Secrets" tab — never in this file.
+# RPC_URL, STRAT_DEMO_SECRET) go in the Replit "Secrets" tab — never in this file.
 HOST = "0.0.0.0"
 OSTIUM_NETWORK = "testnet"
 
