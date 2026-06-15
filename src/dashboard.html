@@ -153,6 +153,15 @@
     .kv .k { font-size: 11px; font-weight: 600; color: var(--text-vdim); text-transform: uppercase; letter-spacing: 0.03em; }
     .kv .v { font-size: 15px; font-weight: 500; margin-top: 2px; }
     .poscard-foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-vdim); }
+    .poscard-actions { margin-top: 14px; }
+    .btn-close {
+      font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+      padding: 8px 14px; border-radius: var(--r-sm);
+      background: var(--tag-bg); color: var(--text); border: 1px solid var(--border);
+    }
+    .btn-close:hover { background: var(--red-bg); color: var(--red); border-color: var(--red-bd); }
+    .btn-close:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+    .btn-close:disabled { opacity: 0.5; cursor: default; }
 
     .empty { text-align: center; padding: 40px 16px; color: var(--text-dim); }
     .empty .big { font-size: 16px; margin-bottom: 4px; }
@@ -274,14 +283,10 @@
       else if (deleg.configured && deleg.authorized === false) { delClass = 'neg'; delText = '✕ Not authorized'; }
       else if (deleg.configured) { delClass = 'dim'; delText = 'checking…'; }
 
-      var killOn = status && status.killSwitch;
-
-      // Promote the two hard demo-blockers to a banner; otherwise clear it.
+      // Promote a not-authorized delegate (a hard live-trade blocker) to a banner; otherwise clear it.
       if (deleg.configured && deleg.authorized === false) {
         setBanner('⚠ Delegate not authorized — the trader’s delegate slot points elsewhere (e.g. the Ostium UI relayer). ' +
           'Live trades will be rejected. Run <code>npm run register-delegate</code>, then confirm <code>npm run delegate-info</code>.', 'err');
-      } else if (killOn) {
-        setBanner('⏸ Kill-switch is ON — the worker halts before any trade. Set <code>global.kill_switch: false</code> and restart to resume.', 'warn');
       } else {
         clearBanner();
       }
@@ -300,7 +305,6 @@
       var tiles = [
         { label: 'Network', value: (status && NET_NAMES[status.network]) || (status && status.network) || '—', cls: 'sm dim' },
         { label: 'Delegate', value: delText, cls: 'sm ' + delClass },
-        { label: 'Kill-switch', value: killOn ? 'HALTED' : 'Off', cls: 'sm ' + (killOn ? 'neg' : 'dim') },
         { label: 'USDC balance', value: pos && pos.balance ? usd(pos.balance.usdc) : '—', cls: '' },
         { label: 'Account value', value: pos && pos.marginSummary ? usd(pos.marginSummary.accountValue) : '—', cls: '' },
         { label: 'Open PnL', value: pnl === null ? '—' : money(pnl), cls: pnlClass },
@@ -318,6 +322,7 @@
     function renderPositions(pos, dataOk) {
       var host = document.getElementById('positions');
       var meta = document.getElementById('pos-meta');
+      var canClose = lastStatus && lastStatus.canClose;
       if (pos == null) { // never received a good snapshot yet
         meta.textContent = '';
         host.innerHTML = dataOk
@@ -359,9 +364,25 @@
             kv('Take-profit', p.takeProfit ? price(p.takeProfit) : '—') +
             kv('Stop-loss', p.stopLoss ? price(p.stopLoss) : '—') +
           '</div>' +
+          (canClose ? '<div class="poscard-actions"><button class="btn-close" data-pairid="' + esc(p.pairId) + '" data-pair="' + esc(p.pair) + '">Close position</button></div>' : '') +
           '<div class="poscard-foot">Opened ' + esc(rel(p.openedAt)) + ' · slot idx ' + esc(p.idx) + '</div>' +
         '</div>';
       }).join('');
+    }
+
+    // --- close the open position (token-gated; the server holds the delegate key) ---
+    async function closePosition(pairId, pair) {
+      if (!pairId) return;
+      if (!confirm('Close your ' + (pair || '') + ' position now? This submits a market close on-chain.')) return;
+      var token = sessionStorage.getItem('adapterSecret');
+      if (!token) { token = prompt('Enter your adapter secret (STRAT_DEMO_SECRET) to authorize the close:'); if (!token) return; sessionStorage.setItem('adapterSecret', token); }
+      try {
+        var r = await fetch('/api/close', { method: 'POST', headers: { 'content-type': 'application/json', 'x-adapter-secret': token }, body: JSON.stringify({ pairId: pairId }) });
+        var j = await r.json().catch(function () { return {}; });
+        if (r.status === 401) { sessionStorage.removeItem('adapterSecret'); alert('Wrong secret — try again.'); return; }
+        if (!r.ok || (j && j.error)) { alert('Close failed: ' + ((j && (j.detail || j.error)) || ('HTTP ' + r.status))); return; }
+        pollData(); // refresh promptly (the close shows as a pending 'submitted' event)
+      } catch (e) { alert('Close failed: ' + e); }
     }
 
     // --- event timeline ---
@@ -572,6 +593,10 @@
       setTimeout(loop, 3000);
     }
     setInterval(tickClock, 1000); tickClock();
+    document.getElementById('positions').addEventListener('click', function (e) {
+      var b = e.target && e.target.closest ? e.target.closest('.btn-close') : null;
+      if (b) closePosition(b.getAttribute('data-pairid'), b.getAttribute('data-pair'));
+    });
     loop();
   </script>
 </body>

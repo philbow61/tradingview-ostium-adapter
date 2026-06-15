@@ -10,7 +10,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import { loadConfig } from './config';
 import { DedupStore, dedupKey } from './dedup';
-import type { ExecutorConfig } from './ostium';
+import { OstiumExecutor, type ExecutorConfig } from './ostium';
 import { SignalV1, dedupKeyMaterial, lagSeconds } from './schema';
 import { EventStore } from './state';
 import { SymbolMapper, type SdkPairLike } from './symbols';
@@ -105,6 +105,17 @@ export async function buildServer(): Promise<FastifyInstance> {
     ...(process.env.DELEGATE_PRIVATE_KEY ? { delegateKey: process.env.DELEGATE_PRIVATE_KEY } : {}),
   });
 
+  // Dashboard "Close position" action. Closing is a state-changing on-chain action on a public URL,
+  // so it's token-gated (DASHBOARD_TOKEN, falling back to the shared STRAT_DEMO_SECRET) and uses a
+  // lazily-built executor (separate from the worker's; shares the delegate key).
+  const CLOSE_TOKEN = process.env.DASHBOARD_TOKEN || process.env.STRAT_DEMO_SECRET || '';
+  let closeExecPromise: Promise<OstiumExecutor> | undefined;
+  function getCloseExec(): Promise<OstiumExecutor> | undefined {
+    if (!executorConfig) return undefined;
+    if (!closeExecPromise) closeExecPromise = OstiumExecutor.create({ network: config.global.network, ...executorConfig });
+    return closeExecPromise;
+  }
+
   const app = Fastify({ logger: false });
   // TradingView sends the alert message as text/plain (or no content-type). Take ALL
   // bodies as a raw string and parse JSON ourselves so we control the error response.
@@ -132,6 +143,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       pairs: s.allowedPairs,
     })),
     delegate: await reader.delegate(),
+    canClose: Boolean(CLOSE_TOKEN && executorConfig),
   }));
 
   app.get('/api/positions', async (_req, reply) => {
@@ -140,6 +152,45 @@ export async function buildServer(): Promise<FastifyInstance> {
       return { ...snap, session, lastSignalAt: events.latest('received') };
     } catch (e) {
       return reply.code(200).send({ error: e instanceof Error ? e.message : String(e), positions: [], session: null });
+    }
+  });
+
+  // Close one open position on-chain. Token-gated (never embed the token in the page).
+  app.post('/api/close', async (req, reply) => {
+    if (!CLOSE_TOKEN) {
+      return reply.code(403).send({ error: 'close_disabled', detail: 'set DASHBOARD_TOKEN (or STRAT_DEMO_SECRET) to enable closing from the dashboard' });
+    }
+    const token = (req.headers['x-adapter-secret'] as string | undefined) ?? '';
+    if (!constantTimeEq(token, CLOSE_TOKEN)) return reply.code(401).send({ error: 'unauthorized' });
+
+    const execP = getCloseExec();
+    if (!execP) {
+      return reply.code(503).send({ error: 'no_executor', detail: 'live signing not configured (DELEGATE_PRIVATE_KEY + TRADER_ADDRESS)' });
+    }
+
+    let body: { pairId?: string | number };
+    try {
+      body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : ((req.body as { pairId?: string | number }) ?? {});
+    } catch {
+      return reply.code(422).send({ error: 'invalid_json' });
+    }
+    const pairId = body.pairId != null ? String(body.pairId) : '';
+    if (!pairId) return reply.code(422).send({ error: 'missing_pairId' });
+
+    try {
+      const exec = await execP;
+      const positions = await exec.positions();
+      const pos = exec.positionFor(positions, pairId);
+      if (pos.state === 'flat' || pos.idx == null) return reply.code(200).send({ error: 'no_position' });
+      const full = positions.find((p) => String(p.pairId) === pairId);
+      const pInfo = (await exec.pairs()).find((p) => String(p.pairId) === pairId);
+      const price = Number(pInfo?.midPx) || 0;
+      const res = await exec.close({ pairId, idx: pos.idx, price, slippageBps: 150 });
+      const pairName = full ? `${full.pairFrom}/${full.pairTo}` : pairId;
+      events.log('submitted', { strategyId: 'dashboard', data: { action: 'close', manual: true, pair: pairName, pairId, txHash: res.txHash } });
+      return reply.code(200).send({ ok: true, txHash: res.txHash });
+    } catch (e) {
+      return reply.code(200).send({ error: e instanceof Error ? e.message : String(e) });
     }
   });
 
