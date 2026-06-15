@@ -134,7 +134,6 @@ export async function buildServer(): Promise<FastifyInstance> {
   app.get('/api/status', async () => ({
     ok: true,
     network: config.global.network,
-    killSwitch: config.global.killSwitch,
     trader: process.env.TRADER_ADDRESS ?? null,
     strategies: Object.values(config.strategies).map((s) => ({
       id: s.strategyId,

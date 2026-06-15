@@ -52,9 +52,6 @@ class FakeExecutor implements IExecutor {
     this.positionsList = []; // close settles immediately in the fake
     return { txHash: '0xclose' as `0x${string}` };
   }
-  async modify() {
-    return { txHash: '0xmod' as `0x${string}` };
-  }
   async ordersByTx() {
     return [{ isPending: !this.orderCancelled, isCancelled: this.orderCancelled, cancelReason: this.orderCancelled ? 'slippage' : undefined, oid: '999' }] as any;
   }

@@ -17,7 +17,7 @@
 #    that trades whatever chart it's on, set `allowed_pairs: []` (allows any pair the ticker resolves to).
 
 global:
-  network: testnet            # testnet (Arbitrum Sepolia) | mainnet (Arbitrum One)
+  network: testnet            # testnet (Arbitrum Sepolia) | mainnet (Arbitrum One — also needs env ALLOW_MAINNET=true)
   kill_switch: false          # hard global stop — halts ALL execution when true
   # TradingView's outbound webhook IPs (defense-in-depth; they can rotate).
   tv_allowed_ips:

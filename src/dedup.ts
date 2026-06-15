@@ -12,7 +12,7 @@ export function dedupKey(material: string): string {
   return createHash('sha256').update(material).digest('hex');
 }
 
-export function clientOrderId(key: string): string {
+function clientOrderId(key: string): string {
   return key.slice(0, 32);
 }
 

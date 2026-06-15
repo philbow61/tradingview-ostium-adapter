@@ -52,13 +52,6 @@ export interface CloseArgs {
   slippageBps?: number;
 }
 
-export interface ModifyArgs {
-  pairId: string;
-  idx: number;
-  takeProfit?: number;
-  stopLoss?: number;
-}
-
 /** The executor surface the worker depends on — implemented by OstiumExecutor, faked in tests. */
 export interface IExecutor {
   pairs(): Promise<Pair[]>;
@@ -68,7 +61,6 @@ export interface IExecutor {
   positionFor(positions: Position[], pairId: string): PositionView;
   openMarket(args: OpenMarketArgs): Promise<SubmissionResult>;
   close(args: CloseArgs): Promise<SubmissionResult>;
-  modify(args: ModifyArgs): Promise<SubmissionResult>;
   ordersByTx(txHash: string): Promise<Order[]>;
   cancelPendingOpen(orderId: number): Promise<SubmissionResult>;
 }
@@ -151,17 +143,6 @@ export class OstiumExecutor implements IExecutor {
         price: String(args.price),
         closePercent: args.closePercent ?? 100,
         ...(args.slippageBps != null ? { slippage: args.slippageBps } : {}),
-      }),
-    );
-  }
-
-  async modify(args: ModifyArgs): Promise<SubmissionResult> {
-    return wrap(() =>
-      this.client.modifyOrder({
-        pairId: args.pairId,
-        idx: args.idx,
-        ...(args.takeProfit ? { takeProfit: String(args.takeProfit) } : {}),
-        ...(args.stopLoss ? { stopLoss: String(args.stopLoss) } : {}),
       }),
     );
   }
