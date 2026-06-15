@@ -13,6 +13,8 @@ import { OstiumClient, CancelOrderType } from '@ostium/builder-sdk';
 const NETWORK = (process.env.OSTIUM_NETWORK ?? 'testnet') as 'testnet' | 'mainnet';
 const TRADER = process.env.TRADER_ADDRESS as `0x${string}` | undefined;
 const DK = process.env.DELEGATE_PRIVATE_KEY as `0x${string}` | undefined;
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const THROTTLE_MS = Number(process.env.THROTTLE_MS ?? 2500); // space out gasless submits — the sponsor rate-limits bursts
 
 async function main() {
   if (!DK || !TRADER) throw new Error('DELEGATE_PRIVATE_KEY / TRADER_ADDRESS missing in .env');
@@ -40,6 +42,7 @@ async function main() {
     } catch (e) {
       console.error(`  ✗ close ${p.pairFrom}/${p.pairTo} idx ${p.idx}:`, e instanceof Error ? e.message : e);
     }
+    await sleep(THROTTLE_MS);
   }
 
   // 2) cancel every resting limit/stop order
@@ -56,11 +59,37 @@ async function main() {
     }
   }
 
-  // 3) report pending market orders (they settle on their own → re-run to close any resulting position)
-  const pending = await c.getOrders({ user: TRADER, isPending: true });
-  console.log(`\npending market orders: ${pending.length}${pending.length ? ' (settle shortly → re-run)' : ''}`);
+  // 3) clear pending market orders: reclaim pending OPENS, and cancel pending CLOSES whose pair no
+  //    longer has an open position (orphaned/redundant close attempts the keeper left dangling).
+  const pending = await c.getOrders({ user: TRADER, isPending: true, limit: 1000 });
+  const openPairIds = new Set((await c.getOpenPositions({ user: TRADER })).pairPositions.map((pp) => String(pp.position.pairId)));
+  console.log(`\npending market orders: ${pending.length}`);
+  let reclaimed = 0;
+  for (const o of pending) {
+    const orderId = Number(o.oid);
+    if (!Number.isFinite(orderId)) {
+      console.error(`  ✗ ${o.pairFrom}/${o.pairTo} ${o.action}: non-numeric oid ${o.oid}`);
+      continue;
+    }
+    try {
+      if (o.action === 'Open') {
+        await c.cancelOrder({ type: CancelOrderType.PendingOpen, orderId });
+        console.log(`  ✓ reclaim pending OPEN ${o.pairFrom}/${o.pairTo} order ${orderId}`);
+        reclaimed++;
+      } else if (o.action === 'Close' && !openPairIds.has(String(o.pairId))) {
+        await c.cancelOrder({ type: CancelOrderType.PendingClose, orderId }); // retry defaults false → just clear it
+        console.log(`  ✓ clear orphaned CLOSE ${o.pairFrom}/${o.pairTo} order ${orderId}`);
+        reclaimed++;
+      } else {
+        console.log(`  – skip pending ${o.action} ${o.pairFrom}/${o.pairTo} order ${orderId} (pair still has a position)`);
+      }
+    } catch (e) {
+      console.error(`  ✗ cancel pending ${o.action} order ${orderId}:`, e instanceof Error ? e.message : e);
+    }
+    await sleep(THROTTLE_MS);
+  }
 
-  console.log(`\nsubmitted ${closed} close(s) + ${cancelled} cancel(s). They settle via the keeper — re-run in ~30s to confirm 0 / 0.`);
+  console.log(`\nsubmitted ${closed} close(s) + ${cancelled} order-cancel(s) + ${reclaimed} pending-cancel(s). Re-run in ~30s to confirm 0 / 0 / 0.`);
 }
 
 main().catch((e) => {
