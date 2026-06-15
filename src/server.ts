@@ -10,7 +10,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import { loadConfig } from './config';
 import { DedupStore, dedupKey } from './dedup';
-import { OstiumExecutor, type ExecutorConfig } from './ostium';
+import type { ExecutorConfig, IExecutor } from './ostium';
 import { SignalV1, dedupKeyMaterial, lagSeconds } from './schema';
 import { EventStore } from './state';
 import { SymbolMapper, type SdkPairLike } from './symbols';
@@ -107,14 +107,11 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   // Dashboard "Close position" action. Closing is a state-changing on-chain action on a public URL,
-  // so it's token-gated (DASHBOARD_TOKEN, falling back to the shared STRAT_DEMO_SECRET) and uses a
-  // lazily-built executor (separate from the worker's; shares the delegate key).
+  // so it's token-gated (DASHBOARD_TOKEN, falling back to the shared STRAT_DEMO_SECRET). It reuses the
+  // worker's SINGLE executor instance, so opens and closes share one ERC-4337 nonce chain.
   const CLOSE_TOKEN = process.env.DASHBOARD_TOKEN || process.env.STRAT_DEMO_SECRET || '';
-  let closeExecPromise: Promise<OstiumExecutor> | undefined;
-  function getCloseExec(): Promise<OstiumExecutor> | undefined {
-    if (!executorConfig) return undefined;
-    if (!closeExecPromise) closeExecPromise = OstiumExecutor.create({ network: config.global.network, ...executorConfig });
-    return closeExecPromise;
+  function getCloseExec(): Promise<IExecutor> | undefined {
+    return executorConfig ? worker.getExecutor() : undefined;
   }
 
   const app = Fastify({ logger: false });

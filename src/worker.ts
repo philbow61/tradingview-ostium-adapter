@@ -57,6 +57,11 @@ type OpenOutcome =
 export class Worker {
   private executor?: IExecutor;
   private executorPromise?: Promise<IExecutor>;
+  // Account-wide lock: USDC is shared across all pairs, so equity-based sizing + the open submit
+  // must not interleave with another pair's. reservedCollateral covers in-flight opens the balance
+  // read can't see yet.
+  private acctChain: Promise<unknown> = Promise.resolve();
+  private reservedCollateral = 0;
   private settle: SettleConfig;
   private notifier: Notifier;
 
@@ -78,6 +83,17 @@ export class Worker {
       });
     }
     return this.executorPromise;
+  }
+
+  /** The shared executor — the dashboard close path reuses ONE instance (one ERC-4337 nonce chain). */
+  async getExecutor(): Promise<IExecutor> {
+    return this.live();
+  }
+
+  private serializeAccount<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.acctChain.then(fn, fn);
+    this.acctChain = run.then(() => undefined, () => undefined);
+    return run;
   }
 
   async process(job: Job): Promise<void> {
@@ -119,7 +135,6 @@ export class Worker {
         maxLeverage: pInfo.maxLeverage || strat.maxLeverage,
         minCollateral: config.global.minCollateralUsdc,
       };
-      equity = await exec.usdcBalance();
       current = exec.positionFor(await exec.positions(), pairId).state;
     }
 
@@ -130,7 +145,8 @@ export class Worker {
     }
 
     let size: SizeResult | undefined;
-    if (plan.open) {
+    if (plan.open && !live) {
+      // Eager size for the dry-run plan only; live sizing happens inside the account lock below.
       try {
         size = this.sizeOpen(sig, strat, equity, price, limits);
       } catch (e) {
@@ -154,6 +170,7 @@ export class Worker {
     // --- LIVE ---
     const slippageBps = Math.round(strat.slippagePct * 100);
     const isFlip = plan.close && plan.open;
+    const ex = exec; // live ⇒ exec is defined; stable ref for the account-lock closure
     try {
       // CLOSE leg (flatten or first half of a flip)
       if (plan.close && current !== 'flat') {
@@ -167,38 +184,55 @@ export class Worker {
           if (!closed) return this.reject(job, 'close_not_settled');
           this.info(job, 'closed', { pair: pair.pairName, pairId, txHash: closeRes.txHash });
         }
-        equity = await exec.usdcBalance(); // re-read freed collateral AFTER close settles
       }
 
-      // OPEN leg
+      // OPEN leg — size + submit under the account lock so concurrent pairs don't double-spend the
+      // shared USDC balance (reservedCollateral covers in-flight opens the balance read can't see yet).
       if (plan.open) {
-        // re-size against freed equity for percent/risk modes after a flip
-        if (isFlip) size = this.sizeOpen(sig, strat, equity, price, limits);
         const tp = bracketToPrice(sig.sentiment, price, sig.take_profit, true);
         const sl = bracketToPrice(sig.sentiment, price, sig.stop_loss, false);
-        const res = await exec.openMarket({
-          pairId, isLong: sig.sentiment === 'long',
-          collateral: size!.collateral, leverage: size!.leverage, price, slippageBps,
-          orderType: sig.order_type,
-          ...(tp != null ? { takeProfit: tp } : {}),
-          ...(sl != null ? { stopLoss: sl } : {}),
-          ...(sig.limit_price != null ? { limitPrice: sig.limit_price } : {}),
-        });
-        // Surface the on-chain tx immediately (pending) so a stalled keeper is visible.
-        this.info(job, 'submitted', { pair: pair.pairName, action: 'open', side: sig.sentiment, txHash: res.txHash });
-        const outcome = await this.confirmOpen(exec, res.txHash, pairId, sig.sentiment);
-        if (outcome.kind === 'cancelled') return this.reject(job, `open_cancelled:${outcome.reason}`);
-        if (outcome.kind === 'timeout') {
-          if (outcome.orderId != null) {
-            const cancelRes = await exec.cancelPendingOpen(outcome.orderId);
-            this.info(job, 'reclaimed', { pair: pair.pairName, txHash: cancelRes.txHash, orderId: outcome.orderId });
+        let reserved = 0;
+        try {
+          const res = await this.serializeAccount(async () => {
+            const eq = (await ex.usdcBalance()) - this.reservedCollateral;
+            size = this.sizeOpen(sig, strat, eq, price, limits);
+            const r = await ex.openMarket({
+              pairId, isLong: sig.sentiment === 'long',
+              collateral: size.collateral, leverage: size.leverage, price, slippageBps,
+              orderType: sig.order_type,
+              ...(tp != null ? { takeProfit: tp } : {}),
+              ...(sl != null ? { stopLoss: sl } : {}),
+              ...(sig.limit_price != null ? { limitPrice: sig.limit_price } : {}),
+            });
+            reserved = size.collateral;
+            this.reservedCollateral += reserved;
+            return r;
+          }).catch((e) => {
+            if (e instanceof SizingError) {
+              this.reject(job, `sizing:${e.message}`);
+              return null;
+            }
+            throw e;
+          });
+          if (res == null) return; // sizing rejected (already marked FAILED)
+          // Surface the on-chain tx immediately (pending) so a stalled keeper is visible.
+          this.info(job, 'submitted', { pair: pair.pairName, action: 'open', side: sig.sentiment, txHash: res.txHash });
+          const outcome = await this.confirmOpen(ex, res.txHash, pairId, sig.sentiment);
+          if (outcome.kind === 'cancelled') return this.reject(job, `open_cancelled:${outcome.reason}`);
+          if (outcome.kind === 'timeout') {
+            if (outcome.orderId != null) {
+              const cancelRes = await ex.cancelPendingOpen(outcome.orderId);
+              this.info(job, 'reclaimed', { pair: pair.pairName, txHash: cancelRes.txHash, orderId: outcome.orderId });
+            }
+            return this.reject(job, 'open_not_settled_reclaimed');
           }
-          return this.reject(job, 'open_not_settled_reclaimed');
+          this.info(job, 'opened', {
+            pair: pair.pairName, txHash: res.txHash, smartAccount: res.smartAccountAddress,
+            collateral: size!.collateral, leverage: size!.leverage, notional: size!.notional, refPrice: price,
+          });
+        } finally {
+          this.reservedCollateral -= reserved; // release the reservation once the open resolves
         }
-        this.info(job, 'opened', {
-          pair: pair.pairName, txHash: res.txHash, smartAccount: res.smartAccountAddress,
-          collateral: size!.collateral, leverage: size!.leverage, notional: size!.notional, refPrice: price,
-        });
       }
       dedup.mark(job.dedupKey, 'FILLED');
     } catch (e) {
