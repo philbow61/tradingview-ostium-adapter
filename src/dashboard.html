@@ -227,7 +227,11 @@
     .k-orange .ev-kind { color: var(--orange); }
 
     footer { max-width: 1200px; margin: 0 auto; padding: 8px 24px 32px; color: var(--text-vdim); font-size: 12px; }
-    .motto { font-size: 15px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px; }
+    .motto {
+      text-align: center; font-size: clamp(20px, 3vw, 30px); font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim);
+      margin: 4px 0 22px; line-height: 1.2;
+    }
     .motto b { color: var(--orange); font-weight: 700; }
     code { background: var(--tag-bg); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
   </style>
@@ -247,6 +251,7 @@
   </header>
 
   <main>
+    <div class="motto">More Strategy, More Trading, <b>More PNL</b></div>
     <div class="banner" id="banner"></div>
 
     <section class="stats" id="stats"></section>
@@ -273,7 +278,6 @@
   </main>
 
   <footer>
-    <div class="motto">More Strategy, More Trading, <b>More PNL</b></div>
     Read-only operator view · polls <code>/api/positions</code> + <code>/events</code> every 3s.
     Numbers come straight from on-chain reads via the Ostium Builder SDK. This page never trades.
   </footer>
