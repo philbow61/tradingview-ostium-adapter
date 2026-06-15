@@ -175,14 +175,21 @@ export class Worker {
       // CLOSE leg (flatten or first half of a flip)
       if (plan.close && current !== 'flat') {
         if (isFlip) this.info(job, 'flip_in_progress', { pair: pair.pairName, from: current, to: sig.sentiment });
-        const pos = exec.positionFor(await exec.positions(), pairId);
-        if (pos.idx != null) {
-          const closeRes = await exec.close({ pairId, idx: pos.idx, price, slippageBps });
-          // Surface the on-chain tx immediately (pending) so a stalled keeper is visible.
-          this.info(job, 'submitted', { pair: pair.pairName, action: 'close', txHash: closeRes.txHash });
+        // Close ALL positions on this pair. Ostium allows multiple positions per pair, and a stray
+        // extra (a manual UI trade, a slow-keeper open the adapter gave up on, or a second strategy
+        // on the same pair) would otherwise block confirmClosed forever — the pair never reads flat.
+        const toClose = (await exec.positions()).filter((p) => String(p.pairId) === pairId);
+        if (toClose.length) {
+          let lastTx: string | undefined;
+          for (const p of toClose) {
+            const closeRes = await exec.close({ pairId, idx: p.idx, price, slippageBps });
+            lastTx = closeRes.txHash;
+            // Surface each on-chain tx immediately (pending) so a stalled keeper is visible.
+            this.info(job, 'submitted', { pair: pair.pairName, action: 'close', idx: p.idx, txHash: closeRes.txHash });
+          }
           const closed = await this.confirmClosed(exec, pairId);
           if (!closed) return this.reject(job, 'close_not_settled');
-          this.info(job, 'closed', { pair: pair.pairName, pairId, txHash: closeRes.txHash });
+          this.info(job, 'closed', { pair: pair.pairName, pairId, txHash: lastTx });
         }
       }
 
