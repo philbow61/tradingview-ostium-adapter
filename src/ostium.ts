@@ -84,6 +84,15 @@ export class OstiumExecutor implements IExecutor {
     return new OstiumExecutor(client, cfg.traderAddress);
   }
 
+  // Serializes on-chain submissions: one delegate Safe, so ERC-4337 nonces must not race. Reads and
+  // settlement polling stay concurrent — only the brief submit call is serialized.
+  private writeChain: Promise<unknown> = Promise.resolve();
+  private serializeWrite<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.writeChain.then(fn, fn);
+    this.writeChain = run.then(() => undefined, () => undefined);
+    return run;
+  }
+
   // --- reads ---
   async pairs(): Promise<Pair[]> {
     return (await this.client.getPairs()).pairs;
@@ -115,35 +124,39 @@ export class OstiumExecutor implements IExecutor {
 
   /** Cancel a timed-out pending market OPEN to reclaim its collateral. */
   async cancelPendingOpen(orderId: number): Promise<SubmissionResult> {
-    return wrap(() => this.client.cancelOrder({ type: CancelOrderType.PendingOpen, orderId }));
+    return this.serializeWrite(() => wrap(() => this.client.cancelOrder({ type: CancelOrderType.PendingOpen, orderId })));
   }
 
   // --- writes (gasless UserOperations) ---
   async openMarket(args: OpenMarketArgs): Promise<SubmissionResult> {
-    return wrap(() =>
-      this.client.openTrade({
-        pairId: args.pairId,
-        buy: args.isLong,
-        price: String(args.orderType === 'limit' ? (args.limitPrice ?? args.price) : args.price),
-        collateral: String(args.collateral),
-        leverage: String(args.leverage),
-        type: args.orderType === 'limit' ? OrderType.Limit : OrderType.Market,
-        ...(args.takeProfit ? { takeProfit: String(args.takeProfit) } : {}),
-        ...(args.stopLoss ? { stopLoss: String(args.stopLoss) } : {}),
-        ...(args.slippageBps != null ? { slippage: args.slippageBps } : {}),
-      }),
+    return this.serializeWrite(() =>
+      wrap(() =>
+        this.client.openTrade({
+          pairId: args.pairId,
+          buy: args.isLong,
+          price: String(args.orderType === 'limit' ? (args.limitPrice ?? args.price) : args.price),
+          collateral: String(args.collateral),
+          leverage: String(args.leverage),
+          type: args.orderType === 'limit' ? OrderType.Limit : OrderType.Market,
+          ...(args.takeProfit ? { takeProfit: String(args.takeProfit) } : {}),
+          ...(args.stopLoss ? { stopLoss: String(args.stopLoss) } : {}),
+          ...(args.slippageBps != null ? { slippage: args.slippageBps } : {}),
+        }),
+      ),
     );
   }
 
   async close(args: CloseArgs): Promise<SubmissionResult> {
-    return wrap(() =>
-      this.client.closeTrade({
-        pairId: args.pairId,
-        idx: args.idx,
-        price: String(args.price),
-        closePercent: args.closePercent ?? 100,
-        ...(args.slippageBps != null ? { slippage: args.slippageBps } : {}),
-      }),
+    return this.serializeWrite(() =>
+      wrap(() =>
+        this.client.closeTrade({
+          pairId: args.pairId,
+          idx: args.idx,
+          price: String(args.price),
+          closePercent: args.closePercent ?? 100,
+          ...(args.slippageBps != null ? { slippage: args.slippageBps } : {}),
+        }),
+      ),
     );
   }
 }

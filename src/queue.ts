@@ -31,3 +31,29 @@ export class SerialQueue<T> {
     }
   }
 }
+
+/**
+ * Routes each job to a per-key SerialQueue: jobs with the SAME key run serially (per-pair ordering
+ * for flips/dedup), jobs with DIFFERENT keys run concurrently (so a slow settlement on one pair
+ * doesn't block another). Key by pair.
+ */
+export class KeyedQueue<T> {
+  private queues = new Map<string, SerialQueue<T>>();
+
+  constructor(private handler: (job: T) => Promise<void>) {}
+
+  push(key: string, job: T): void {
+    let q = this.queues.get(key);
+    if (!q) {
+      q = new SerialQueue<T>(this.handler);
+      this.queues.set(key, q);
+    }
+    q.push(job);
+  }
+
+  get size(): number {
+    let n = 0;
+    for (const q of this.queues.values()) n += q.size;
+    return n;
+  }
+}

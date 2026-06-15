@@ -56,6 +56,7 @@ type OpenOutcome =
 
 export class Worker {
   private executor?: IExecutor;
+  private executorPromise?: Promise<IExecutor>;
   private settle: SettleConfig;
   private notifier: Notifier;
 
@@ -65,13 +66,18 @@ export class Worker {
     this.notifier = deps.notifier ?? new NoopNotifier();
   }
 
+  // Concurrency-safe: with per-pair queues, multiple jobs may call live() at once — build once.
   private async live(): Promise<IExecutor> {
-    if (!this.executor) {
+    if (this.executor) return this.executor;
+    if (!this.executorPromise) {
       const ec = this.deps.executorConfig;
       if (!ec) throw new Error('no executor config for live mode');
-      this.executor = await OstiumExecutor.create({ network: this.deps.config.global.network, ...ec });
+      this.executorPromise = OstiumExecutor.create({ network: this.deps.config.global.network, ...ec }).then((e) => {
+        this.executor = e;
+        return e;
+      });
     }
-    return this.executor;
+    return this.executorPromise;
   }
 
   async process(job: Job): Promise<void> {

@@ -14,7 +14,7 @@ import { OstiumExecutor, type ExecutorConfig } from './ostium';
 import { SignalV1, dedupKeyMaterial, lagSeconds } from './schema';
 import { EventStore } from './state';
 import { SymbolMapper, type SdkPairLike } from './symbols';
-import { SerialQueue } from './queue';
+import { KeyedQueue } from './queue';
 import { makeNotifier } from './notify';
 import { Worker, type Job } from './worker';
 import { DashboardReader } from './reader';
@@ -94,7 +94,8 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   const notifier = makeNotifier(process.env.DISCORD_WEBHOOK_URL);
   const worker = new Worker({ config, mapper, dedup, events, notifier, ...(executorConfig ? { executorConfig } : {}) });
-  const queue = new SerialQueue<Job>((job) => worker.process(job));
+  // Per-pair queue: different pairs execute concurrently, same pair stays ordered.
+  const queue = new KeyedQueue<Job>((job) => worker.process(job));
 
   // Read-only data source for the dashboard (T-111). Never trades; createReadOnly needs no key,
   // and the on-chain delegate check is best-effort (only when a delegate key is configured).
@@ -243,7 +244,8 @@ export async function buildServer(): Promise<FastifyInstance> {
       return reply.code(200).send(`duplicate (${claim.status}), ignored`);
     }
 
-    queue.push({ signal: sig, strategy: strat, dedupKey: key, clientOrderId: claim.clientOrderId });
+    const queueKey = mapper.resolve(sig.ticker)?.pairName ?? sig.ticker.toUpperCase();
+    queue.push(queueKey, { signal: sig, strategy: strat, dedupKey: key, clientOrderId: claim.clientOrderId });
     events.log('received', {
       strategyId: sig.strategy_id, dedupKey: key,
       data: { ticker: sig.ticker, sentiment: sig.sentiment, mode: strat.mode },

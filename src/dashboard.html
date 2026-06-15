@@ -165,7 +165,7 @@
 
     /* --- timeline --- */
     .timeline { display: flex; flex-direction: column; max-height: 560px; overflow-y: auto; }
-    .ev { display: grid; grid-template-columns: 16px 1fr; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .ev { display: grid; grid-template-columns: 16px 1fr; gap: 10px; padding: 10px 0 10px 8px; border-bottom: 1px solid var(--border); border-left: 3px solid transparent; }
     .ev:last-child { border-bottom: 0; }
     .ev-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; background: var(--text-vdim); }
     .ev-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -265,6 +265,12 @@
       return Math.floor(h / 24) + 'd ago';
     }
     function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    // Deterministic color per market/strategy, so concurrent strategies are visually distinct.
+    function colorForKey(s) {
+      if (!s) return 'var(--text-vdim)';
+      var h = 0; for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+      return 'hsl(' + h + ', 70%, 62%)';
+    }
     function setConn(state, label) {
       document.getElementById('conn-dot').className = 'dot ' + state;
       document.getElementById('conn-label').textContent = label;
@@ -328,7 +334,7 @@
         return;
       }
       var list = pos.positions || [];
-      meta.textContent = pos.trader ? (pos.trader.slice(0, 6) + '…' + pos.trader.slice(-4)) : '';
+      meta.textContent = (list.length ? list.length + ' open · ' : '') + (pos.trader ? pos.trader.slice(0, 6) + '…' + pos.trader.slice(-4) : '');
       if (!list.length) {
         host.innerHTML = '<div class="empty"><div class="big">No open position</div>' +
           '<div class="dim">Flat — waiting for the next strategy signal.</div></div>';
@@ -339,7 +345,7 @@
         var pnlClass = pnl === null ? 'dim' : pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'dim';
         var coll = n(p.collateralUsed), roe = (pnl !== null && coll) ? (pnl / coll) * 100 : null;
         var roeStr = roe === null ? '' : (roe > 0 ? '+' : '') + roe.toFixed(2) + '%';
-        return '<div class="poscard">' +
+        return '<div class="poscard" style="border-left:3px solid ' + colorForKey(p.pair) + '">' +
           '<div class="poscard-top">' +
             '<div class="poscard-pair">' +
               '<span class="name">' + esc(p.pair) + '</span>' +
@@ -515,12 +521,13 @@
           var rv = Number(realized);
           pnlSpan = '  <span class="num ' + (rv > 0 ? 'pos' : rv < 0 ? 'neg' : 'dim') + '">' + (rv > 0 ? '+' : '') + money(realized) + '</span>';
         }
-        return '<div class="ev ' + def.cls + (isNew ? ' ev-new' : '') + '">' +
+        var sColor = colorForKey(e.strategyId || d.pair || '');
+        return '<div class="ev ' + def.cls + (isNew ? ' ev-new' : '') + '" style="border-left-color:' + sColor + '">' +
           '<div class="ev-dot"></div>' +
           '<div>' +
             '<div class="ev-row"><span class="ev-kind">' + esc(def.label) + '</span>' +
               '<span class="ev-time">' + esc(rel(e.ts * 1000)) + '</span></div>' +
-            '<div class="ev-sub">' + esc(evSummary(e.kind, d)) + (e.strategyId ? '  ·  ' + esc(e.strategyId) : '') + pnlSpan + '</div>' +
+            '<div class="ev-sub">' + esc(evSummary(e.kind, d)) + (e.strategyId ? '  ·  <span style="color:' + sColor + ';font-weight:600">' + esc(e.strategyId) + '</span>' : '') + pnlSpan + '</div>' +
             (tx ? '<div>' + tx + '</div>' : '') +
           '</div>' +
         '</div>';

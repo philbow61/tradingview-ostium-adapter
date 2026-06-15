@@ -54,7 +54,7 @@ A dev Repl sleeps when idle — keep the tab open while demoing, or [deploy a Re
 ```bash
 git clone https://github.com/philbow61/tradingview-ostium-adapter && cd tradingview-ostium-adapter
 npm install
-npm test                              # 17 tests should pass
+npm test                              # the test suite should pass
 
 cp .env.example .env                  # fill DELEGATE_PRIVATE_KEY, TRADER_ADDRESS, RPC_URL, STRAT_DEMO_SECRET
 #   (config.example.yaml runs by default — 6 markets, live; copy to config.yaml to customize)
