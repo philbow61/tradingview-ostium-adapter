@@ -4,9 +4,10 @@
  */
 import 'dotenv/config';
 import { timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { OstiumClient } from '@ostium/builder-sdk';
 
 import { loadConfig } from './config';
 import { DedupStore, dedupKey } from './dedup';
@@ -41,8 +42,30 @@ function resolveConfigPath(): string {
   return 'config.yaml'; // let loadConfig surface a clear ENOENT
 }
 
-function buildMapper(): SymbolMapper {
+/**
+ * Build the symbol mapper from the LIVE pair set so every market gets a real pairId. This matters
+ * for pairs whose Ostium display name differs from the canonical name (WTI→CL, GOLD→XAU, SILVER→XAG):
+ * the offline DEFAULT_PAIRS has no pairIds, so the worker can't match them to a live market and
+ * rejects with `pair_not_live`. Order: live SDK (read-only, no key) → cached file → offline default.
+ */
+async function buildMapper(network: 'testnet' | 'mainnet'): Promise<SymbolMapper> {
   const file = `${DATA_DIR}/pairs.json`;
+  try {
+    const client = await OstiumClient.createReadOnly({
+      testnet: network === 'testnet',
+      ...(process.env.RPC_URL ? { rpcUrl: process.env.RPC_URL } : {}),
+    });
+    const { pairs } = await client.getPairs();
+    if (Array.isArray(pairs) && pairs.length) {
+      try {
+        writeFileSync(file, JSON.stringify(pairs, null, 2)); // refresh the cache for the next boot (read-only FS is fine)
+      } catch { /* ignore — Replit/containers may have a read-only CWD */ }
+      console.log(`[receiver] loaded ${pairs.length} live pairs (${network}) for symbol mapping`);
+      return SymbolMapper.fromSdkPairs(pairs as SdkPairLike[]);
+    }
+  } catch (e) {
+    console.warn('[receiver] live getPairs() failed — falling back to cached/offline pairs:', e instanceof Error ? e.message : String(e));
+  }
   if (existsSync(file)) {
     const data = JSON.parse(readFileSync(file, 'utf8'));
     if (Array.isArray(data) && data.length && 'pairFrom' in data[0]) {
@@ -50,6 +73,7 @@ function buildMapper(): SymbolMapper {
     }
     return new SymbolMapper(data);
   }
+  console.warn('[receiver] using offline DEFAULT_PAIRS — pairIds unknown; live-only markets (oil/gold/silver) may reject as pair_not_live.');
   return SymbolMapper.fromDefault();
 }
 
@@ -64,7 +88,7 @@ export async function buildServer(): Promise<FastifyInstance> {
         'or set ALLOW_MAINNET=true to override (real funds at risk).',
     );
   }
-  const mapper = buildMapper();
+  const mapper = await buildMapper(config.global.network);
   const dedup = new DedupStore(`${DATA_DIR}/dedup.sqlite`);
   const events = new EventStore(`${DATA_DIR}/events.sqlite`);
 
