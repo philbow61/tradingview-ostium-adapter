@@ -82,6 +82,57 @@ strategies to `mode: dry_run`.
 
 ---
 
+# Configure strategies (`config.yaml`)
+
+All trading behaviour — leverage, position size, which markets, live vs dry-run — lives in
+`config.yaml`. The shipped `config.example.yaml` runs as-is; copy it to `config.yaml` to customize.
+Keys/secrets stay in env (never in this file). **Config is read once at startup — edit it, then
+restart** (Replit: Stop ▸ Run). Restarting mid-session is safe: open positions live on-chain and the
+adapter reconciles to them on the next signal.
+
+Each entry under `strategies:` maps one `strategy_id` (the value your TradingView alert sends) to one
+market and its rules:
+
+| Field | What it does |
+|---|---|
+| `enabled` | Turn this strategy on/off. |
+| `mode` | `live` = real trades · `dry_run` = log the planned action only, no signing. |
+| `secret_env` | Name of the env var holding this strategy's shared webhook secret (the demos all share `STRAT_DEMO_SECRET`). |
+| `default_leverage` | Leverage when the alert doesn't specify one (e.g. `10` = 10×). |
+| `max_leverage` | Hard cap; also clamped to the pair's own max. |
+| `slippage_pct` | Max slippage tolerated on the order (e.g. `1.0` = 1%). |
+| `sizing.default_mode` | How to size — see the table below. |
+| `sizing.default_value` | The number that mode uses (USD notional, or a %). |
+| `sizing.max_position_notional` | Upper bound on a single position's notional (USD). |
+| `sizing.allow_payload_override` | If `true`, an alert may override mode/value/leverage. |
+| `allowed_pairs` | Markets this strategy may trade (e.g. `[BTC/USD]`). `[]` = any listed market the chart resolves to (catch-all). |
+| `risk.max_open_positions` | Max concurrent positions for this strategy. |
+| `risk.require_sl_for_risk_mode` | Require a stop-loss when using `risk_percent` sizing. |
+
+**How size is decided.** Leverage comes from config (or the alert, if override is on); the position
+**size is computed from your live on-chain USDC**, never TradingView's `contracts`. Collateral is
+derived: `collateral = notional ÷ leverage`.
+
+| `sizing.default_mode` | Notional is… | Example |
+|---|---|---|
+| `fixed_notional` | a flat USD amount | `100` → $100 notional → at 10× = **$10 collateral** |
+| `percent_of_equity` | `value%` × equity × leverage | `2` → 2% of your USDC, levered |
+| `risk_percent` | sized so hitting the stop-loss loses `value%` of equity | `1` → risk 1% per trade (needs a stop-loss) |
+
+**Global settings** (top of the file) apply to everything:
+
+| Field | What it does |
+|---|---|
+| `network` | `testnet` (Arbitrum Sepolia) or `mainnet` (also requires env `ALLOW_MAINNET=true`). |
+| `kill_switch` | `true` halts **all** execution immediately. |
+| `min_collateral_usdc` | Floor for collateral per trade. |
+| `max_lag_sec_hard_cap` | Server cap on signal freshness — older alerts are dropped as stale. |
+| `tv_allowed_ips` · `enforce_ip_allowlist` | Optional IP allowlist for TradingView's webhook IPs (off by default). |
+
+> ⚠️ Strategies run **live by default**. Set `mode: dry_run` per strategy to log without trading.
+
+---
+
 # Connect a TradingView strategy
 
 Run one copy of [`strategies/ma_cross_ostium.pine`](strategies/ma_cross_ostium.pine) per market:
